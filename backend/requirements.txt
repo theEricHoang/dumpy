@@ -1,6 +1,8 @@
 annotated-doc==0.0.3
 annotated-types==0.7.0
 anyio==4.11.0
+azure-core==1.36.0
+azure-storage-blob==12.24.0
 certifi==2025.10.5
 cffi==2.0.0
 charset-normalizer==3.4.4
@@ -23,6 +25,7 @@ httptools==0.7.1
 httpx==0.28.1
 hyperframe==6.1.0
 idna==3.11
+isodate==0.7.2
 Jinja2==3.1.6
 jiter==0.11.1
 markdown-it-py==4.0.0
