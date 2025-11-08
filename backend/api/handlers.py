@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
-from api.schemas import SlideshowRequest, SlideshowResponse
+from api.schemas import SlideshowRequest, SlideshowResponse, CaptionRequest, CaptionResponse
+from services.caption_service import generate_caption
 
 # TODO: Import services once implemented
 # from services.face_service import detect_faces
@@ -103,14 +104,21 @@ async def generate_slideshow(
         })
     print(f"[PLACEHOLDER] Created face mappings for caption generation")
     
-    # TODO: Call caption_service with face mappings and theme_prompt
-    # Example:
-    # captions = await generate_captions(image_face_mapping, theme_prompt)
-    # Returns: [
-    #   {"image_url": "...", "caption": "Sarah and John enjoying sunset at the beach"},
-    #   {"image_url": "...", "caption": "A peaceful moment by the lake"},
-    #   ...
-    # ]
+    captions = []
+    for mapping in image_face_mapping:
+        caption_text = generate_caption(
+            image_url=mapping["image_url"],
+            album=event_id,
+            captured_at="2024-01-01T12:00:00Z",  # PLACEHOLDER
+            people_present=mapping["user_ids"],
+            tags=[],
+            recent_story=[],
+            style="playful"
+        )
+        captions.append({
+            "image_url": mapping["image_url"],
+            "caption": caption_text
+        })
     captions = [
         {"image_url": image_urls[0], "caption": f"A wonderful moment - {theme_prompt}"},
         {"image_url": image_urls[1], "caption": f"Beautiful memories - {theme_prompt}"},
