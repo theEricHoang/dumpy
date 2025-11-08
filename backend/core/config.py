@@ -1,12 +1,17 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+import os
 
 class Settings(BaseSettings):
-    AZURE_OPENAI_API_KEY: str
-    AZURE_OPENAI_ENDPOINT: str
-    AZURE_OPENAI_DEPLOYMENT: str
+    AZURE_OPENAI_API_KEY: str = ''
+    AZURE_OPENAI_ENDPOINT: str = ''
+    AZURE_OPENAI_DEPLOYMENT: str = ''
+
+    AZURE_STORAGE_ACCOUNT: str = os.getenv("AZURE_STORAGE_ACCOUNT", "")
+    AZURE_STORAGE_KEY: str = os.getenv("AZURE_STORAGE_KEY", "")
+    CONTAINER_NAME: str = os.getenv("CONTAINER_NAME", "event-media")
+
     SUPABASE_URL: Optional[str] = None
-    # Prefer explicit service role key name (write privileges). Keep legacy SUPABASE_KEY fallback.
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None  # legacy / anon key (read-mostly)
     SUPABASE_API_KEY: Optional[str] = None  # alternative naming

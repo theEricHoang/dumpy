@@ -19,8 +19,42 @@ supabase: Client = create_client(
     settings.SUPABASE_SERVICE_ROLE_KEY
 )
 
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+
+from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+from datetime import datetime, timedelta
+
+@router.post("/getUploadUrl")
+async def get_upload_url(file_name: str):
+    """
+    Generate a temporary SAS URL for uploading media directly to Azure Blob Storage.
+    """
+    try:
+        account_name = os.getenv("AZURE_STORAGE_ACCOUNT")
+        account_key = os.getenv("AZURE_STORAGE_KEY")
+        container_name = os.getenv("CONTAINER_NAME", "event-media")
+
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=container_name,
+            blob_name=file_name,
+            account_key=account_key,
+            permission=BlobSasPermissions(write=True),
+            expiry=datetime.utcnow() + timedelta(hours=1)
+        )
+
+        upload_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{file_name}?{sas_token}"
+
+        return {"upload_url": upload_url}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 @router.post("/slideshow/generate", response_model=SlideshowResponse)
 async def generate_slideshow(
