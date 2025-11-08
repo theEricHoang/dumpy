@@ -66,7 +66,7 @@ export default function CreateEvent() {
             }
 
             Alert.alert('Success', 'Event created successfully!', [
-                { text: 'OK', onPress: () => router.replace('/(tabs)') }
+                { text: 'OK', onPress: () => router.replace('/(tabs)/feed') }
             ]);
 
         } catch (err) {

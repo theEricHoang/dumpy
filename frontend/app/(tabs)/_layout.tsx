@@ -1,33 +1,103 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Tabs, usePathname, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { TouchableOpacity, View } from 'react-native';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // check if user is on dump page
+  const isInDump = pathname.startsWith('/dump/') && pathname.split('/').length === 3;
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
+        tabBarShowLabel: false,
+        tabBarStyle: {
+          height: 70,
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 0,
+          elevation: 10,
+          paddingTop: 5,
+        },
       }}>
+      {/* feed tab */}
       <Tabs.Screen
-        name="index"
+        name="feed"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons size={size} name="home-outline" color={color} />
+          ),
+          tabBarActiveTintColor: '#6D9C91',
+          tabBarInactiveTintColor: '#777',
         }}
       />
+      {/* search tab */}
       <Tabs.Screen
-        name="explore"
+        name="search"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons size={size} name="search-outline" color={color} />
+          ),
+          tabBarActiveTintColor: '#6D9C91',
+          tabBarInactiveTintColor: '#777',
+        }}
+      />
+      {/* upload button */}
+      <Tabs.Screen
+        name="upload"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TouchableOpacity
+              onPress={() => {
+                if (isInDump) {
+                  router.push('/upload');
+                }
+              }}
+              activeOpacity={isInDump ? 0.7 : 1}
+            >
+              <View
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 32,
+                  backgroundColor: isInDump ? '#4A9B72' : '#C7D9CF',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 30,
+                }}
+              >
+                <Ionicons
+                  name="add"
+                  size={36}
+                  color="white"
+                />
+              </View>
+            </TouchableOpacity>
+          ),
+        }}
+      />
+      {/* dumps tab */}
+      <Tabs.Screen
+        name="dumps/index"
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons size={size} name="albums-outline" color={color} />
+          ),
+          tabBarActiveTintColor: '#6D9C91',
+          tabBarInactiveTintColor: '#777',
+        }}
+      />
+      {/* profile tab */}
+      <Tabs.Screen
+        name="profile"
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons size={size} name="person-outline" color={color} />
+          ),
+          tabBarActiveTintColor: '#6D9C91',
+          tabBarInactiveTintColor: '#777',
         }}
       />
     </Tabs>
