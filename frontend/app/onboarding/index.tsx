@@ -81,7 +81,7 @@ export default function OnboardingSwiper() {
                     resizeMode="contain"
                 />
                 <Text style={{ fontFamily: 'Poppins', fontSize: 32, color: 'black', fontWeight: 'bold', textAlign: 'center', paddingHorizontal: 30 }}>
-                    share and watch everyone else's dumps
+                    share and watch everyone else&apos;s dumps
                 </Text>
                 <TouchableOpacity 
                     onPress={handleComplete}
