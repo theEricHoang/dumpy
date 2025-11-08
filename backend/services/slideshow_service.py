@@ -37,16 +37,17 @@ async def download_image(image_url: str, output_path: str) -> str:
     return output_path
 
 
-async def preprocess_image(image_path: str, output_path: str, target_width: int = 1920, target_height: int = 1080) -> str:
+async def preprocess_image(image_path: str, output_path: str, target_width: int = 1080, target_height: int = 1920) -> str:
     """
     Preprocess image to handle different resolutions and aspect ratios.
     Resizes and pads image to target resolution while maintaining aspect ratio.
+    TikTok/mobile vertical format: 1080x1920 (9:16).
     
     Args:
         image_path: Path to source image
         output_path: Path to save processed image
-        target_width: Target width
-        target_height: Target height
+        target_width: Target width (default: 1080 for mobile)
+        target_height: Target height (default: 1920 for mobile)
     
     Returns:
         Path to processed image
@@ -89,7 +90,7 @@ async def preprocess_image(image_path: str, output_path: str, target_width: int 
 
 def get_ken_burns_params(duration: float) -> Dict[str, any]:
     """
-    Get random Ken Burns effect parameters.
+    Get Ken Burns effect parameters with subtle zoom and pan.
     
     Args:
         duration: Duration of the effect in seconds
@@ -99,13 +100,44 @@ def get_ken_burns_params(duration: float) -> Dict[str, any]:
     """
     zoom_in = random.choice([True, False])
     
+    # More subtle zoom for better effect
     return {
         "zoom_in": zoom_in,
-        "zoom_start": 1.0 if zoom_in else 1.3,
-        "zoom_end": 1.3 if zoom_in else 1.0,
+        "zoom_start": 1.0 if zoom_in else 1.2,
+        "zoom_end": 1.2 if zoom_in else 1.0,
         "duration": duration,
-        "fps": 30
+        "fps": 30,
+        "width": 1080,
+        "height": 1920
     }
+
+
+def wrap_text(text: str, max_chars_per_line: int = 35) -> str:
+    """
+    Wrap text to fit within a certain character width.
+    Breaks at word boundaries when possible.
+    """
+    words = text.split()
+    lines = []
+    current_line = []
+    current_length = 0
+    
+    for word in words:
+        word_length = len(word)
+        # +1 for space before word
+        if current_length + word_length + (1 if current_line else 0) <= max_chars_per_line:
+            current_line.append(word)
+            current_length += word_length + (1 if len(current_line) > 1 else 0)
+        else:
+            if current_line:
+                lines.append(' '.join(current_line))
+            current_line = [word]
+            current_length = word_length
+    
+    if current_line:
+        lines.append(' '.join(current_line))
+    
+    return '\n'.join(lines)
 
 
 async def create_slideshow(
@@ -184,35 +216,55 @@ async def create_slideshow(
             total_frames = int(duration_per_image * fps)
             zoom_start = kb_params["zoom_start"]
             zoom_end = kb_params["zoom_end"]
+            width = kb_params["width"]
+            height = kb_params["height"]
             
-            # Build zoompan filter
-            zoompan_filter = (
-                f"zoompan=z='if(lte(zoom,1.0),{zoom_start},{zoom_start}+"
-                f"(on/{total_frames})*({zoom_end}-{zoom_start}))'"
-                f":d={total_frames}:s=1920x1080:fps={fps}"
-            )
+            # Wrap text for better display on mobile
+            wrapped_caption = wrap_text(caption_text, max_chars_per_line=35)
             
-            # Escape single quotes in caption
-            safe_caption = caption_text.replace("'", "\\'").replace(":", "\\:")
-            
-            # Build drawtext filter for caption
-            drawtext_filter = (
-                f"drawtext=text='{safe_caption}'"
-                f":fontcolor=white:fontsize=48:borderw=2:bordercolor=black"
-                f":x=(w-text_w)/2:y=h-100"
-            )
+            # Escape special characters in caption for FFmpeg
+            safe_caption = wrapped_caption.replace("'", "'\\\\\\''").replace(":", "\\:")
             
             try:
-                # Create segment using ffmpeg-python
-                # Note: We use frames parameter in output to ensure exact duration
-                stream = (
-                    ffmpeg
-                    .input(img_path, loop=1, framerate=fps)
-                    .filter('zoompan', z=f'if(lte(zoom,1.0),{zoom_start},{zoom_start}+(on/{total_frames})*({zoom_end}-{zoom_start}))', d=total_frames, s='1920x1080', fps=fps)
-                    .drawtext(text=safe_caption, fontcolor='white', fontsize=48, borderw=2, bordercolor='black', x='(w-text_w)/2', y='h-100')
-                    .output(segment_path, vcodec='libx264', pix_fmt='yuv420p', frames=total_frames)
-                    .overwrite_output()
+                # Create segment using ffmpeg-python with Ken Burns effect
+                stream = ffmpeg.input(img_path, loop=1, framerate=fps)
+                
+                # Apply Ken Burns zoom effect with correct initial zoom
+                # Use linear interpolation from zoom_start to zoom_end
+                zoom_formula = f'{zoom_start}+({zoom_end}-{zoom_start})*(on/{total_frames})'
+                stream = stream.filter(
+                    'zoompan',
+                    z=zoom_formula,
+                    d=total_frames,
+                    s=f'{width}x{height}',
+                    fps=fps
                 )
+                
+                # Add caption with text wrapping using max_glyph_w for wrapping
+                stream = stream.drawtext(
+                    text=safe_caption,
+                    fontcolor='white',
+                    fontsize=40,
+                    borderw=3,
+                    bordercolor='black@0.8',
+                    x='(w-text_w)/2',
+                    y='h-th-80',  # 80px from bottom
+                    box=1,
+                    boxcolor='black@0.5',
+                    boxborderw=20,
+                    line_spacing=8,
+                    fontfile='/System/Library/Fonts/Supplemental/Arial.ttf'
+                )
+                
+                stream = stream.output(
+                    segment_path,
+                    vcodec='libx264',
+                    pix_fmt='yuv420p',
+                    frames=total_frames,  # Explicit frame count for exact duration
+                    **{'b:v': '3M'}  # Set bitrate for quality
+                )
+                
+                stream = stream.overwrite_output()
                 
                 await run_ffmpeg_async(stream)
                 segment_files.append(segment_path)
@@ -221,25 +273,48 @@ async def create_slideshow(
                 error_msg = e.stderr.decode() if e.stderr else str(e)
                 raise RuntimeError(f"FFmpeg failed for segment {idx}: {error_msg}")
         
-        # Step 4: Concatenate all segments
-        print(f"[SLIDESHOW] Concatenating {len(segment_files)} segments...")
-        
-        # Create concat demuxer file
-        concat_file = os.path.join(temp_dir, "concat.txt")
-        with open(concat_file, 'w') as f:
-            for seg in segment_files:
-                f.write(f"file '{seg}'\n")
+        # Step 4: Concatenate all segments with crossfade transitions
+        print(f"[SLIDESHOW] Concatenating {len(segment_files)} segments with crossfade transitions...")
         
         temp_video_no_audio = os.path.join(temp_dir, "video_no_audio.mp4")
         
         try:
-            stream = (
-                ffmpeg
-                .input(concat_file, format='concat', safe=0)
-                .output(temp_video_no_audio, c='copy')
-                .overwrite_output()
-            )
-            await run_ffmpeg_async(stream)
+            if len(segment_files) == 1:
+                # Single segment - just copy it
+                import shutil
+                shutil.copy(segment_files[0], temp_video_no_audio)
+            else:
+                # Multiple segments - apply crossfade between them
+                crossfade_duration = 0.5  # 0.5 second crossfade
+                
+                # Build complex filter for crossfading
+                inputs = [ffmpeg.input(seg) for seg in segment_files]
+                
+                # Start with first video
+                video = inputs[0].video
+                
+                # Apply crossfade between consecutive videos
+                for i in range(1, len(inputs)):
+                    # Calculate offset (duration of previous segment minus crossfade)
+                    offset = duration_per_image - crossfade_duration
+                    
+                    video = ffmpeg.filter(
+                        [video, inputs[i].video],
+                        'xfade',
+                        transition='fade',
+                        duration=crossfade_duration,
+                        offset=offset * i
+                    )
+                
+                stream = ffmpeg.output(
+                    video,
+                    temp_video_no_audio,
+                    vcodec='libx264',
+                    pix_fmt='yuv420p',
+                    **{'b:v': '3M'}
+                ).overwrite_output()
+                
+                await run_ffmpeg_async(stream)
             
         except ffmpeg.Error as e:
             error_msg = e.stderr.decode() if e.stderr else str(e)
@@ -271,17 +346,20 @@ async def create_slideshow(
             import shutil
             shutil.copy(temp_video_no_audio, output_path)
         
-        # Calculate total duration
-        total_duration = len(images) * duration_per_image
+        # Calculate total duration accounting for crossfades
+        # Each crossfade overlaps 0.5s, so subtract that from total
+        crossfade_duration = 0.5
+        num_transitions = max(0, len(images) - 1)
+        total_duration = (len(images) * duration_per_image) - (num_transitions * crossfade_duration)
         
         print(f"[SLIDESHOW] Successfully created slideshow: {output_path}")
-        print(f"[SLIDESHOW] Duration: {total_duration}s, Images: {len(images)}")
+        print(f"[SLIDESHOW] Duration: {total_duration}s, Images: {len(images)}, Format: 1080x1920 (9:16)")
         
         return {
             "video_path": output_path,
             "duration": total_duration,
-            "width": 1920,
-            "height": 1080
+            "width": 1080,
+            "height": 1920
         }
         
     except Exception as e:
