@@ -1,5 +1,5 @@
-import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Tabs, usePathname, useRouter } from 'expo-router';
 import { TouchableOpacity, View } from 'react-native';
 
 export default function TabLayout() {
