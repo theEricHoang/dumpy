@@ -13,3 +13,15 @@ class SlideshowResponse(BaseModel):
     message: str
     slideshow_url: Optional[str] = None  # URL to the generated slideshow video
     job_id: Optional[str] = None  # For async processing
+
+class CaptionRequest(BaseModel):
+    image_url: str
+    album: str
+    captured_at: str
+    people_present: Optional[list[str]] = []
+    tags: Optional[list[str]] = []
+    recent_story: Optional[list[str]] = []
+    style: Optional[str] = "playful"
+
+class CaptionResponse(BaseModel):
+    caption: str
