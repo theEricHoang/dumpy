@@ -1,9 +1,10 @@
 import { getSupabase } from '@/lib/supabaseClient';
+import { Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold, useFonts } from '@expo-google-fonts/poppins';
 import { Ionicons } from '@expo/vector-icons';
 import { useEvent } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Animated, FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Slideshow = {
@@ -14,9 +15,26 @@ type Slideshow = {
   duration_seconds: number;
   status: string;
   created_at: string;
+  event?: {
+    event_name: string;
+    event_description: string;
+    event_created_at: string;
+  };
 };
 
-function DumpVideo({ src, isActive }: { src: string; isActive: boolean }) {
+function DumpVideo({ 
+  src, 
+  isActive, 
+  eventName, 
+  description, 
+  timestamp 
+}: { 
+  src: string; 
+  isActive: boolean;
+  eventName?: string;
+  description?: string;
+  timestamp?: string;
+}) {
   const player = useVideoPlayer(src, player => {
     player.loop = true;
     if (isActive) {
@@ -81,11 +99,38 @@ function DumpVideo({ src, isActive }: { src: string; isActive: boolean }) {
           </Animated.View>
         )}
       </Pressable>
+      
+      {/* Event Info Overlay */}
+      <View style={styles.eventInfoOverlay}>
+        {eventName && (
+          <Text style={styles.eventName}>{eventName}</Text>
+        )}
+        {description && (
+          <Text style={styles.eventDescription}>{description}</Text>
+        )}
+        {timestamp && (
+          <Text style={styles.eventTimestamp}>
+            {new Date(timestamp).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit'
+            })}
+          </Text>
+        )}
+      </View>
     </View>
   );
 }
 
 export default function Feed() {
+  const [fontsLoaded] = useFonts({
+    Poppins_400Regular,
+    Poppins_600SemiBold,
+    Poppins_700Bold
+  });
+
   const { height: windowHeight, width: SCREEN_WIDTH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   
@@ -112,7 +157,14 @@ export default function Feed() {
       const supabase = getSupabase();
       const { data, error } = await supabase
         .from('slideshows')
-        .select('*')
+        .select(`
+          *,
+          event:events!inner(
+            event_name,
+            event_description,
+            event_created_at
+          )
+        `)
         // .eq('status', 'completed') // Temporarily removed to debug
         .order('created_at', { ascending: false })
         .range(page * pageSize, (page + 1) * pageSize - 1);
@@ -154,7 +206,13 @@ export default function Feed() {
 
   const renderItem = ({ item, index }: { item: Slideshow; index: number }) => (
     <View style={[styles.videoContainer, { height: SCREEN_HEIGHT, width: SCREEN_WIDTH }]}>
-      <DumpVideo src={item.slideshow_url} isActive={index === currentIndex} />
+      <DumpVideo 
+        src={item.slideshow_url} 
+        isActive={index === currentIndex}
+        eventName={item.event?.event_name}
+        description={item.event?.event_description}
+        timestamp={item.event?.event_created_at}
+      />
     </View>
   );
 
@@ -234,5 +292,38 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  eventInfoOverlay: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    zIndex: 10,
+  },
+  eventName: {
+    fontSize: 24,
+    fontFamily: 'Poppins_700Bold',
+    color: 'white',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+    marginBottom: 8,
+  },
+  eventDescription: {
+    fontSize: 16,
+    fontFamily: 'Poppins_400Regular',
+    color: 'white',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+    marginBottom: 6,
+  },
+  eventTimestamp: {
+    fontSize: 14,
+    fontFamily: 'Poppins_600SemiBold',
+    color: 'rgba(255, 255, 255, 0.8)',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
 });
