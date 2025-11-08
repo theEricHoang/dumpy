@@ -141,20 +141,29 @@ export default function Feed() {
   const SCREEN_HEIGHT = windowHeight - TAB_BAR_HEIGHT;
   
   const [slideshows, setSlideshows] = useState<Slideshow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [page, setPage] = useState(0);
   const pageSize = 10;
+  const hasInitiallyFetched = useRef(false);
 
   useEffect(() => {
-    fetchSlideshows();
+    // Only fetch on initial mount
+    if (!hasInitiallyFetched.current && slideshows.length === 0) {
+      hasInitiallyFetched.current = true;
+      setLoading(true);
+      fetchSlideshows();
+    }
   }, []);
 
-  const fetchSlideshows = async () => {
+  const fetchSlideshows = async (isRefreshing = false) => {
     try {
       console.log('Fetching slideshows...');
       const supabase = getSupabase();
+      const currentPage = isRefreshing ? 0 : page;
+      
       const { data, error } = await supabase
         .from('slideshows')
         .select(`
@@ -167,7 +176,7 @@ export default function Feed() {
         `)
         // .eq('status', 'completed') // Temporarily removed to debug
         .order('created_at', { ascending: false })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
+        .range(currentPage * pageSize, (currentPage + 1) * pageSize - 1);
 
       if (error) {
         console.error('Supabase error:', error);
@@ -177,15 +186,27 @@ export default function Feed() {
       console.log('Fetched slideshows:', data?.length);
       console.log('First slideshow:', data?.[0]);
       if (data) {
-        setSlideshows(prev => page === 0 ? data : [...prev, ...data]);
-        setPage(prev => prev + 1);
+        if (isRefreshing) {
+          setSlideshows(data);
+          setPage(1);
+        } else {
+          setSlideshows(prev => currentPage === 0 ? data : [...prev, ...data]);
+          setPage(prev => prev + 1);
+        }
       }
     } catch (err) {
       console.error('Error fetching slideshows:', err);
       setError(err instanceof Error ? err.message : 'Failed to load slideshows');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setError(null);
+    await fetchSlideshows(true);
   };
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
@@ -256,8 +277,10 @@ export default function Feed() {
         getItemLayout={getItemLayout}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
         onEndReached={() => {
-          if (!loading) {
+          if (!loading && !refreshing) {
             fetchSlideshows();
           }
         }}
