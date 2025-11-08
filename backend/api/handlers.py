@@ -1,17 +1,23 @@
 from fastapi import APIRouter, HTTPException, Header, UploadFile, File
 from typing import Optional
+from supabase import create_client, Client
 import os
 import httpx
 
 from api.schemas import SlideshowRequest, SlideshowResponse
 
 # TODO: Import services once implemented
+from core.config import settings
 from services import face_embedding_service as emb
-from services.caption_service import generate_captions
+from services.caption_service import generate_caption
 from services.music_service import generate_music
 # from services.slideshow_service import create_slideshow
 
 router = APIRouter()
+supabase: Client = create_client(
+    settings.SUPABASE_URL,
+    settings.SUPABASE_SERVICE_ROLE_KEY
+)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -96,6 +102,60 @@ async def generate_slideshow(
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "slideshow-api"}
+
+@router.get("/event/{event_id}/media-mapping")
+async def get_event_media_mapping(event_id: int):
+    """
+    Fetch all media and tagged users for an event for caption generation.
+    """
+    try:
+        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Event not found or no media available.")
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch media mapping: {str(e)}")
+    
+@router.post("/event/{event_id}/generate-captions")
+async def generate_event_captions(event_id: int):
+    """
+    Generate captions for all media in an event using tagged user names and metadata.
+    """
+    try:
+        # Fetch all media + tagged users
+        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
+        media_items = response.data or []
+
+        if not media_items:
+            raise HTTPException(status_code=404, detail="Event not found or no media available.")
+        
+        generated_captions = []
+        for media in media_items:
+            tagged_users = [u["username"] for u in (media.get("tagged_users") or [])]
+            file_url = media["file_url"]
+            location = media.get("location", "unknown location")
+
+            # Generate caption using Azure OpenAI service
+            caption = generate_caption(
+                image_url=file_url,
+                tagged_names=tagged_users,
+                location=location
+            )
+
+            # Update caption in Supabase
+            supabase.table("media").update({"ai_caption": caption}).eq("media_id", media["media_id"]).execute()
+
+            generated_captions.append({
+                "media_id": media["media_id"],
+                "file_url": file_url,
+                "ai_caption": caption,
+                "tagged_users": tagged_users
+            })
+        
+        return {"status": "success", "event_id": event_id, "captions_generated": len(generated_captions), "captions": generated_captions}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate captions: {str(e)}")
 
 @router.post("/face/detect_local")
 async def detect_local(file: UploadFile = File(...)):
