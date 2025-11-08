@@ -47,7 +47,7 @@ except Exception:
     # Non-fatal if dotenv load fails
     pass
 
-from .api.handlers import router as api_router
+from api.handlers import router as api_router
 
 
 app = FastAPI(
