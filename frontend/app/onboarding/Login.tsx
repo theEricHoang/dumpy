@@ -16,6 +16,8 @@ export default function Login() {
 
   if (!fontsLoaded) return null;
 
+  const isFormComplete = username.trim() !== "" && password.trim() !== "";
+
   return (
     <View style={styles.container}>
       <Text style={styles.header}>log in</Text>
@@ -43,7 +45,10 @@ export default function Login() {
         </View>
 
       {/* Log In Button */}
-      <TouchableOpacity style={styles.button}>
+      <TouchableOpacity 
+        style={[styles.button, !isFormComplete && styles.buttonDisabled]}
+        disabled={!isFormComplete}
+      >
         <Text style={styles.buttonText}>log in</Text>
       </TouchableOpacity>
 
@@ -101,12 +106,15 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_400Regular",
   },
   button: {
-    backgroundColor: "#C7D9CF",
+    backgroundColor: "#4A9B72",
     paddingVertical: 14,
     borderRadius: 16,
     marginTop: 8,
     width: 253,
     alignSelf: "center",
+  },
+  buttonDisabled: {
+    backgroundColor: "#C7D9CF",
   },
   buttonText: {
     color: "white",

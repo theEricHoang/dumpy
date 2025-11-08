@@ -30,8 +30,7 @@ export function getSupabase(): SupabaseClient {
   return _client
 }
 
-// (Optional) If you really need eager init uncomment below, but lazy keeps broken envs from killing bundler.
-// export const supabase = getSupabase()
+export const supabase = getSupabase()
 
 /** Quick check for env readiness to gate UI before creating a client. */
 export function hasSupabaseEnv(): boolean {

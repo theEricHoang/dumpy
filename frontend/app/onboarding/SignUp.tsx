@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { getSupabase, hasSupabaseEnv } from '../../lib/supabaseClient';
+import { useFonts, Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold } from "@expo-google-fonts/poppins";
 
 // Lightweight email shape check (let Supabase do final validation)
 const EMAIL_REGEX = /\S+@\S+\.\S+/;
@@ -15,6 +16,14 @@ export default function SignUp() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
+
+    const [fontsLoaded] = useFonts({
+        Poppins_400Regular,
+        Poppins_600SemiBold,
+        Poppins_700Bold
+    });
+
+    if (!fontsLoaded) return null;
 
     const passwordsMatch = password && confirmPassword && password === confirmPassword;
     const emailTrim = email.trim();
@@ -80,93 +89,96 @@ export default function SignUp() {
     };
 
     return (
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View style={{ flex: 1, paddingHorizontal: 28, paddingTop: 70, backgroundColor: '#E1E4E8' }}>
-                <Text style={{ fontFamily: 'Poppins', fontSize: 34, fontWeight: '700', marginBottom: 6 }}>create an account</Text>
-                <View style={{ gap: 20 }}>
+        <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={styles.innerContainer}>
+                <Text style={styles.header}>create an account</Text>
+                <View style={styles.formContainer}>
                     <View>
-                        <Text style={{ fontFamily: 'Poppins', fontSize: 14, marginBottom: 6 }}>Username</Text>
+                        <Text style={styles.label}>username</Text>
                         <TextInput
                             value={username}
                             onChangeText={setUsername}
-                            placeholder="yourusername"
+                            placeholder="username"
+                            placeholderTextColor="#555"
                             autoCapitalize="none"
-                            style={{ backgroundColor: '#afa8a8ff', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, fontSize: 16 }}
+                            style={styles.input}
                         />
                     </View>
                     <View>
-                        <Text style={{ fontFamily: 'Poppins', fontSize: 14, marginBottom: 6 }}>Email</Text>
+                        <Text style={styles.label}>email</Text>
                         <TextInput
                             value={email}
                             onChangeText={setEmail}
                             placeholder="you@example.com"
+                            placeholderTextColor="#555"
                             keyboardType="email-address"
                             autoCapitalize="none"
                             autoCorrect={false}
                             textContentType="emailAddress"
                             autoComplete="email"
-                            style={{ backgroundColor: '#afa8a8ff', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, fontSize: 16 }}
+                            style={styles.input}
                         />
-                        {/* Email format hint removed; server will validate */}
                     </View>
                     <View>
-                        <Text style={{ fontFamily: 'Poppins', fontSize: 14, marginBottom: 6 }}>Password</Text>
+                        <Text style={styles.label}>password</Text>
                         <TextInput
                             value={password}
                             onChangeText={setPassword}
-                            placeholder="••••••"
+                            placeholder="password"
+                            placeholderTextColor="#555"
                             secureTextEntry
-                            style={{ backgroundColor: '#afa8a8ff', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, fontSize: 16 }}
+                            style={styles.input}
                         />
                         {!passwordStrongEnough && password.length > 0 && (
-                            <Text style={{ color: '#b00020', fontFamily: 'Poppins', fontSize: 12, marginTop: 4 }}>minimum 6 characters</Text>
+                            <Text style={styles.errorText}>minimum 6 characters</Text>
                         )}
                     </View>
                     <View>
-                        <Text style={{ fontFamily: 'Poppins', fontSize: 14, marginBottom: 6 }}>Confirm Password</Text>
+                        <Text style={styles.label}>confirm password</Text>
                         <TextInput
                             value={confirmPassword}
                             onChangeText={setConfirmPassword}
-                            placeholder="••••••"
+                            placeholder="password"
+                            placeholderTextColor="#555"
                             secureTextEntry
-                            style={{ backgroundColor: '#afa8a8ff', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, fontSize: 16 }}
+                            style={styles.input}
                         />
                         {confirmPassword.length > 0 && !passwordsMatch && (
-                            <Text style={{ color: '#b00020', fontFamily: 'Poppins', fontSize: 12, marginTop: 4 }}>passwords do not match</Text>
+                            <Text style={styles.errorText}>passwords do not match</Text>
                         )}
                     </View>
 
                     {error && (
-                        <Text style={{ color: '#b00020', fontFamily: 'Poppins', fontSize: 13 }}>{error}</Text>
+                        <Text style={styles.errorText}>{error}</Text>
                     )}
                     {info && !error && (
-                        <Text style={{ color: '#064e3b', fontFamily: 'Poppins', fontSize: 13 }}>{info}</Text>
+                        <Text style={styles.successText}>{info}</Text>
                     )}
 
                     <TouchableOpacity
                         disabled={!canSubmit || !envOk}
                         onPress={handleSignUp}
-                        style={{ backgroundColor: (canSubmit && envOk) ? '#000' : '#666', paddingVertical: 16, borderRadius: 18, alignItems: 'center' }}
+                        style={[styles.button, (!canSubmit || !envOk) && styles.buttonDisabled]}
                     >
                         {loading ? (
                             <ActivityIndicator color="#fff" />
                         ) : (
-                            <Text style={{ color: '#fff', fontFamily: 'Poppins', fontSize: 16, fontWeight: '600' }}>Create account</Text>
+                            <Text style={styles.buttonText}>create account</Text>
                         )}
                     </TouchableOpacity>
 
                     {/* Already a member? Log in */}
-                    <Text style={{ textAlign: 'center', marginTop: 12, fontFamily: 'Poppins', color: '#222' }}>
+                    <Text style={styles.footer}>
                         already a member?{' '}
                         <Text
-                            style={{ color: '#6D9C91' }}
+                            style={styles.signupLink}
                             onPress={() => router.replace('/onboarding/Login')}
                         >
                             log in
                         </Text>
                     </Text>
                     {!envOk && (
-                        <Text style={{ textAlign: 'center', marginTop: 8, fontFamily: 'Poppins', color: '#b00020', fontSize: 12 }}>
+                        <Text style={styles.envWarning}>
                             Supabase env vars are not set. Create a .env.development with EXPO_PUBLIC_SUPABASE_URL & EXPO_PUBLIC_SUPABASE_ANON_KEY then restart Expo.
                         </Text>
                     )}
@@ -175,3 +187,92 @@ export default function SignUp() {
         </KeyboardAvoidingView>
     );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+    },
+    innerContainer: {
+        flex: 1,
+        backgroundColor: "#DADCE0",
+        paddingHorizontal: 32,
+        justifyContent: "center",
+    },
+    formContainer: {
+        width: 253,
+        maxWidth: "80%",
+        alignSelf: "center",
+        justifyContent: "space-between",
+        paddingVertical: 10,
+    },
+    header: {
+        fontFamily: "Poppins_700Bold",
+        fontSize: 32,
+        textAlign: "center",
+        color: "black",
+        marginBottom: 36,
+    },
+    label: {
+        fontFamily: "Poppins_400Regular",
+        fontSize: 14,
+        color: "#222",
+        marginBottom: 6,
+        marginLeft: 10,
+    },
+    input: {
+        backgroundColor: "white",
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: "#BCE0D3",
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        fontSize: 16,
+        marginBottom: 16,
+        fontFamily: "Poppins_400Regular",
+    },
+    button: {
+        backgroundColor: "#4A9B72",
+        paddingVertical: 14,
+        borderRadius: 16,
+        marginTop: 8,
+        width: 253,
+        alignSelf: "center",
+    },
+    buttonDisabled: {
+        backgroundColor: "#C7D9CF",
+    },
+    buttonText: {
+        color: "white",
+        fontFamily: "Poppins_600SemiBold",
+        fontSize: 16,
+        textAlign: "center",
+    },
+    footer: {
+        textAlign: "center",
+        marginTop: 20,
+        fontFamily: "Poppins_400Regular",
+        color: "#222",
+    },
+    signupLink: {
+        color: "#6D9C91",
+    },
+    errorText: {
+        color: "#b00020",
+        fontFamily: "Poppins_400Regular",
+        fontSize: 12,
+        marginTop: 4,
+        textAlign: "center",
+    },
+    successText: {
+        color: "#064e3b",
+        fontFamily: "Poppins_400Regular",
+        fontSize: 13,
+    },
+    envWarning: {
+        textAlign: "center",
+        marginTop: 8,
+        fontFamily: "Poppins_400Regular",
+        color: "#b00020",
+        fontSize: 12,
+    },
+});
