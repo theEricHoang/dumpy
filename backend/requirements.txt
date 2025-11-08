@@ -8,6 +8,8 @@ email-validator==2.3.0
 fastapi==0.121.0
 fastapi-cli==0.0.14
 fastapi-cloud-cli==0.3.1
+ffmpeg-python==0.2.0
+future==1.0.0
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.7.1
