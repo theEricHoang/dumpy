@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Header, UploadFile, File
+from pydantic import BaseModel
 from typing import Optional, Dict
 from supabase import create_client, Client
 import os
@@ -18,6 +19,10 @@ from services.caption_service import (
     fetch_event_media_mapping,
     generate_event_captions_batch
 )
+from services.caption_service import generate_caption
+from services.azure_blob_service import upload_profile_image
+from services.music_service import generate_music
+# from services.slideshow_service import create_slideshow
 
 router = APIRouter()
 supabase: Client = create_client(
@@ -112,6 +117,106 @@ async def get_slideshow_status(job_id: str):
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "slideshow-api"}
+
+
+@router.post("/upload/profile-picture")
+async def upload_profile_picture(file: UploadFile = File(...)):
+    """Accept a single image, upload to Azure Blob, and return its URL.
+
+    Frontend should then update Supabase users.profile_pic_url using anon key (subject to RLS).
+    """
+    try:
+        content = await file.read()
+        content_type = file.content_type or "image/jpeg"
+        url = upload_profile_image(content, content_type)
+        return {"url": url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"upload_failed: {str(e)}")
+
+
+def _sanitize_username(base: str) -> str:
+    import re
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]", "", base)
+    return cleaned or "user"
+
+
+@router.post("/users/profile-picture")
+async def set_profile_picture(body: ProfilePicUpdate):
+    """Service-role write: set profile_pic_url for a user (create row if needed).
+
+    This bypasses client-side RLS by using the service role key. If the row doesn't
+    exist, we'll insert with a safe username (adding a short suffix if the username
+    is already taken).
+    """
+    try:
+        email = body.email.strip().lower()
+        url = body.url
+        desired_username = _sanitize_username(body.username or email.split("@")[0])
+
+        # Use the explicitly configured column or default to 'profile_pic_url'
+        pic_col = getattr(settings, "PROFILE_PIC_URL_COLUMN", None) or "profile_pic_url"
+        print(f"[profile-picture] Using column '{pic_col}' for profile picture update")
+
+        # 1) Find existing row by email (prefer latest)
+        sel = supabase.table("users").select(f"user_id, email, username, {pic_col}").eq("email", email).order("user_id", desc=True).limit(1).execute()
+        print(f"[profile-picture] BEFORE rows for email={email}: {sel.data}")
+        rows = sel.data or []
+        if rows:
+            user_id = rows[0]["user_id"]
+            upd = supabase.table("users").update({pic_col: url}, returning="representation").eq("user_id", user_id).execute()
+            print(f"[profile-picture] UPDATE error={getattr(upd,'error',None)} data={getattr(upd,'data',None)}")
+            if getattr(upd, "error", None):
+                raise HTTPException(status_code=400, detail=str(upd.error))
+            data = (getattr(upd, "data", None) or [])
+            if not data:
+                # Likely RLS blocked or no rows matched; attempt upsert fallback
+                print("[profile-picture] UPDATE returned empty data; attempting UPSERT fallback")
+                payload = {"email": email, "username": rows[0].get("username") or desired_username, "password": "***", pic_col: url}
+                up = supabase.table("users").upsert(payload, on_conflict="email", returning="representation").execute()
+                print(f"[profile-picture] UPSERT fallback error={getattr(up,'error',None)} data={getattr(up,'data',None)}")
+                if getattr(up, "error", None):
+                    raise HTTPException(status_code=400, detail=str(up.error))
+                data = (getattr(up, "data", None) or [])
+            if not data:
+                raise HTTPException(status_code=400, detail="update_failed_empty_result (check RLS policies and service role key)")
+            out = data[0]
+            out["profile_pic_url"] = out.get(pic_col)
+            return out
+
+        # 2) Insert new row; handle username unique collisions by appending suffix
+        def _try_upsert(name: str):
+            payload = {"email": email, "username": name, "password": "***", pic_col: url}
+            print(f"[profile-picture] UPSERT attempt payload={payload}")
+            res = supabase.table("users").upsert(payload, on_conflict="email", returning="representation").execute()
+            print(f"[profile-picture] UPSERT response error={getattr(res,'error',None)} data={getattr(res,'data',None)}")
+            return res
+
+        ins = _try_upsert(desired_username)
+        if getattr(ins, "error", None):
+            msg = str(ins.error)
+            if "duplicate key" in msg or "unique constraint" in msg:
+                import hashlib
+                suffix = hashlib.sha1(email.encode("utf-8")).hexdigest()[:8]
+                ins = _try_upsert(f"{desired_username}_{suffix}")
+                if getattr(ins, "error", None):
+                    raise HTTPException(status_code=400, detail=str(ins.error))
+            else:
+                raise HTTPException(status_code=400, detail=msg)
+
+        # Re-select to get user_id
+        # final verify: include all potential columns
+        sel2 = supabase.table("users").select(f"user_id, email, username, {pic_col}").eq("email", email).order("user_id", desc=True).limit(1).execute()
+        print(f"[profile-picture] POST-INSERT verify email={email}: {sel2.data}")
+        rows2 = sel2.data or []
+        if not rows2:
+            raise HTTPException(status_code=500, detail="user_insert_verify_failed")
+        final = rows2[0]
+        final["profile_pic_url"] = final.get(pic_col)
+        return final
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"set_profile_picture_failed: {str(e)}")
 
 @router.get("/event/{event_id}/media-mapping")
 async def get_event_media_mapping_endpoint(event_id: int):

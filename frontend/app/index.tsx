@@ -1,7 +1,4 @@
-import { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
 import { Redirect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function Index() {
   const [isOnboarded, setIsOnboarded] = useState(false);

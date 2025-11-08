@@ -1,9 +1,7 @@
-import { View, Text, Dimensions, TouchableOpacity, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import Swiper from 'react-native-swiper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const { width, height } = Dimensions.get('window');
 
 export default function OnboardingSwiper() {
     const router = useRouter();
