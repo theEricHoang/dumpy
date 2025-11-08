@@ -117,25 +117,100 @@ async def enroll_local(user_id: int, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/face/enroll_local_batch")
+async def enroll_local_batch(user_id: int, files: list[UploadFile] = File(...)):
+    """Enroll multiple images for a user; skips images with no detectable face."""
+    contents: list[bytes] = []
+    for f in files:
+        contents.append(await f.read())
+    try:
+        result = await emb.enroll_local_batch(user_id=user_id, images=contents)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/face/identify_local")
-async def identify_local(file: UploadFile = File(...), top_k: int = 3, threshold: float = 0.6):
+async def identify_local(file: UploadFile = File(...), top_k: int = 3, threshold: float = 0.6, filter_matches: bool = False, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85):
     """Identify a face against locally stored embeddings using cosine similarity."""
     content = await file.read()
     try:
-        result = await emb.identify_local(image_bytes=content, top_k=top_k, threshold=threshold)
+        result = await emb.identify_local(
+            image_bytes=content,
+            top_k=top_k,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/face/identify_multi_local")
-async def identify_multi_local(file: UploadFile = File(...), top_k_per_face: int = 3, threshold: float = 0.6):
+async def identify_multi_local(file: UploadFile = File(...), top_k_per_face: int = 3, threshold: float = 0.6, filter_matches: bool = False, min_prob: float = 0.0, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85, exclusive_assignment: bool = False):
     """Identify all faces in an image against locally stored embeddings; returns results per face."""
     content = await file.read()
     try:
-        result = await emb.identify_multi_local(image_bytes=content, top_k_per_face=top_k_per_face, threshold=threshold)
+        result = await emb.identify_multi_local(
+            image_bytes=content,
+            top_k_per_face=top_k_per_face,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            min_prob=min_prob,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+            exclusive_assignment=exclusive_assignment,
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/face/identify_local_grouped")
+async def identify_local_grouped(file: UploadFile = File(...), top_k: int = 3, threshold: float = 0.6, filter_matches: bool = False, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85):
+    """Identify using grouped embeddings (max similarity per user)."""
+    content = await file.read()
+    try:
+        result = await emb.identify_local_grouped(
+            image_bytes=content,
+            top_k=top_k,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/face/identify_multi_local_grouped")
+async def identify_multi_local_grouped(file: UploadFile = File(...), top_k_per_face: int = 3, threshold: float = 0.6, filter_matches: bool = False, min_prob: float = 0.0, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85, exclusive_assignment: bool = False):
+    """Multi-face identification with per-user grouped similarity aggregation."""
+    content = await file.read()
+    try:
+        result = await emb.identify_multi_local_grouped(
+            image_bytes=content,
+            top_k_per_face=top_k_per_face,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            min_prob=min_prob,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+            exclusive_assignment=exclusive_assignment,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/face/auto_enroll")
+async def auto_enroll(file: UploadFile = File(...), min_similarity: float = 0.8, min_prob: float = 0.0):
+    """Automatically enroll a face if exactly one face and similarity is confident."""
+    content = await file.read()
+    try:
+        result = await emb.auto_enroll_if_confident(image_bytes=content, min_similarity=min_similarity, min_prob=min_prob)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
