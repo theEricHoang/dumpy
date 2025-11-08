@@ -1,7 +1,7 @@
 // Load env variables from common filenames so Expo bundler can inline EXPO_PUBLIC_*
-import path from 'path';
-import fs from 'fs';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 
 const projectRoot = __dirname;
 const searchRoots = [projectRoot, path.join(projectRoot, '..')];
@@ -61,7 +61,8 @@ const config = {
           dark: { backgroundColor: '#000000' }
         }
       ],
-      'expo-font'
+      'expo-font',
+      'expo-video'
     ],
     experiments: { typedRoutes: true, reactCompiler: true },
     extra: {
