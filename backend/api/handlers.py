@@ -1,16 +1,26 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, UploadFile, File
 from typing import Optional
-from api.schemas import SlideshowRequest, SlideshowResponse, CaptionRequest, CaptionResponse
-from services.caption_service import generate_caption
+from supabase import create_client, Client
+import os
+import httpx
+
+from api.schemas import SlideshowRequest, SlideshowResponse
 
 # TODO: Import services once implemented
-# from services.face_service import detect_faces
-# from services.caption_service import generate_captions
-# from services.music_service import generate_music
+from core.config import settings
+from services import face_embedding_service as emb
+from services.caption_service import generate_caption
+from services.music_service import generate_music
 # from services.slideshow_service import create_slideshow
 
 router = APIRouter()
+supabase: Client = create_client(
+    settings.SUPABASE_URL,
+    settings.SUPABASE_SERVICE_ROLE_KEY
+)
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 @router.post("/slideshow/generate", response_model=SlideshowResponse)
 async def generate_slideshow(
@@ -19,106 +29,23 @@ async def generate_slideshow(
 ):
     """
     Generate a slideshow video from event images with AI-powered captions and music.
-    
-    Workflow:
-    1. Verify user owns the event
-    2. Fetch all images from Azure Blob Storage for the event
-    3. Run face recognition to identify people in images
-    4. Generate captions based on detected faces and theme
-    5. Generate or use provided music
-    6. Compile everything into a slideshow video
     """
-    
     # Extract event details from request
     event_id = request.event_id
     music_choice = request.music_choice
     theme_prompt = request.theme_prompt
-    
-    # TODO: Extract user ID from authorization header (Supabase JWT)
-    # Example: user_id = extract_user_from_token(authorization)
-    user_id = "placeholder_user_id"  # PLACEHOLDER
-    
-    # TODO: Check if user owns the event by querying Supabase
-    # Example:
-    # event = supabase.table("events").select("*").eq("id", event_id).single().execute()
-    # if event.data["owner_id"] != user_id:
-    #     raise HTTPException(status_code=403, detail="User does not own this event")
-    print(f"[PLACEHOLDER] Verifying user {user_id} owns event {event_id}")
-    
-    # TODO: Fetch all Azure blob URLs/data for the event_id
-    # Example:
-    # blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-    # container_client = blob_service_client.get_container_client(f"event-{event_id}")
-    # blobs = [blob.name for blob in container_client.list_blobs()]
-    # image_urls = [f"https://{STORAGE_ACCOUNT}.blob.core.windows.net/event-{event_id}/{blob}" for blob in blobs]
+
+    # Placeholder user extraction
+    user_id = "placeholder_user_id"
+
+    # Placeholder image URLs (replace with actual storage fetching)
     image_urls = [
         f"https://placeholder.blob.core.windows.net/event-{event_id}/image1.jpg",
         f"https://placeholder.blob.core.windows.net/event-{event_id}/image2.jpg",
         f"https://placeholder.blob.core.windows.net/event-{event_id}/image3.jpg",
-    ]  # PLACEHOLDER
-    print(f"[PLACEHOLDER] Fetched {len(image_urls)} images from Azure Blob Storage")
-    
-    # TODO: Call face_service to detect faces and get user IDs with positions
-    # Example:
-    # face_results = await detect_faces(image_urls)
-    # Returns: [
-    #   {
-    #     "image_url": "...",
-    #     "faces": [
-    #       {"user_id": "user123", "bbox": [x, y, w, h], "confidence": 0.95},
-    #       {"user_id": "user456", "bbox": [x, y, w, h], "confidence": 0.89}
-    #     ]
-    #   },
-    #   ...
-    # ]
-    face_results = [
-        {
-            "image_url": image_urls[0],
-            "faces": [
-                {"user_id": "user123", "bbox": [100, 150, 200, 250], "confidence": 0.95},
-                {"user_id": "user456", "bbox": [400, 150, 500, 250], "confidence": 0.89}
-            ]
-        },
-        {
-            "image_url": image_urls[1],
-            "faces": [
-                {"user_id": "user123", "bbox": [200, 100, 300, 200], "confidence": 0.92}
-            ]
-        },
-        {
-            "image_url": image_urls[2],
-            "faces": []  # No faces detected
-        }
-    ]  # PLACEHOLDER
-    print(f"[PLACEHOLDER] Face recognition completed for {len(face_results)} images")
-    
-    # TODO: Map face results to each blob/image for caption generation
-    # Create a mapping of image -> detected people
-    image_face_mapping = []
-    for face_result in face_results:
-        user_ids = [face["user_id"] for face in face_result["faces"]]
-        image_face_mapping.append({
-            "image_url": face_result["image_url"],
-            "user_ids": user_ids,
-            "face_positions": [face["bbox"] for face in face_result["faces"]]
-        })
-    print(f"[PLACEHOLDER] Created face mappings for caption generation")
-    
-    captions = []
-    for mapping in image_face_mapping:
-        caption_text = generate_caption(
-            image_url=mapping["image_url"],
-            album=event_id,
-            captured_at="2024-01-01T12:00:00Z",  # PLACEHOLDER
-            people_present=mapping["user_ids"],
-            tags=[],
-            recent_story=[],
-            style="playful"
-        )
-        captions.append({
-            "image_url": mapping["image_url"],
-            "caption": caption_text
-        })
+    ]
+
+    # Placeholder face detection/captions/music pipeline
     captions = [
         {"image_url": image_urls[0], "caption": f"A wonderful moment - {theme_prompt}"},
         {"image_url": image_urls[1], "caption": f"Beautiful memories - {theme_prompt}"},
@@ -126,31 +53,34 @@ async def generate_slideshow(
     ]  # PLACEHOLDER
     print(f"[PLACEHOLDER] Generated {len(captions)} captions with theme: {theme_prompt}")
     
-    # TODO: Handle music selection or generation
-    music_url = None
+    # Handle music selection or generation
+    music_data = None
     if music_choice:
         # Music was pre-selected by user
-        music_url = music_choice
-        print(f"[PLACEHOLDER] Using pre-selected music: {music_url}")
+        music_data = {"url": music_choice}
+        print(f"Using pre-selected music: {music_choice}")
     else:
-        # TODO: Call music_service to generate music based on theme_prompt
-        # Example:
-        # music_url = await generate_music(theme_prompt)
-        music_url = f"https://placeholder-music.com/generated/{event_id}.mp3"  # PLACEHOLDER
-        print(f"[PLACEHOLDER] Generated music based on theme: {theme_prompt}")
+        # Generate music based on theme_prompt
+        try:
+            music_data = await generate_music(theme_prompt, duration=30)
+            print(f"Generated music based on theme: {theme_prompt}")
+        except Exception as e:
+            print(f"[ERROR] Failed to generate music: {str(e)}")
+            # Continue without music rather than failing the entire request
+            music_data = None
     
     # TODO: Call slideshow_service to compile everything into a video
     # Example:
     # slideshow_result = await create_slideshow(
     #     images=image_urls,
     #     captions=captions,
-    #     music_url=music_url,
+    #     music_data=music_data,
     #     theme_prompt=theme_prompt
     # )
     # Returns: {"video_url": "https://...", "duration": 45.3}
     slideshow_url = f"https://placeholder-videos.com/slideshow/{event_id}.mp4"  # PLACEHOLDER
     print(f"[PLACEHOLDER] Slideshow compilation started")
-    print(f"[PLACEHOLDER] Images: {len(image_urls)}, Captions: {len(captions)}, Music: {music_url}")
+    print(f"[PLACEHOLDER] Images: {len(image_urls)}, Captions: {len(captions)}, Music: {music_data is not None}")
     
     # TODO: Store slideshow metadata in Supabase
     # Example:
@@ -166,11 +96,181 @@ async def generate_slideshow(
         status="success",
         message="Slideshow generation completed successfully",
         slideshow_url=slideshow_url,
-        job_id=f"job_{event_id}"  # For async tracking if needed
+        job_id=f"job_{event_id}"
     )
 
-
-# Health check endpoint
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "slideshow-api"}
+
+@router.get("/event/{event_id}/media-mapping")
+async def get_event_media_mapping(event_id: int):
+    """
+    Fetch all media and tagged users for an event for caption generation.
+    """
+    try:
+        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Event not found or no media available.")
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch media mapping: {str(e)}")
+    
+@router.post("/event/{event_id}/generate-captions")
+async def generate_event_captions(event_id: int):
+    """
+    Generate captions for all media in an event using tagged user names and metadata.
+    """
+    try:
+        # Fetch all media + tagged users
+        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
+        media_items = response.data or []
+
+        if not media_items:
+            raise HTTPException(status_code=404, detail="Event not found or no media available.")
+        
+        generated_captions = []
+        for media in media_items:
+            tagged_users = [u["username"] for u in (media.get("tagged_users") or [])]
+            file_url = media["file_url"]
+            location = media.get("location", "unknown location")
+
+            # Generate caption using Azure OpenAI service
+            caption = generate_caption(
+                image_url=file_url,
+                tagged_names=tagged_users,
+                location=location
+            )
+
+            # Update caption in Supabase
+            supabase.table("media").update({"ai_caption": caption}).eq("media_id", media["media_id"]).execute()
+
+            generated_captions.append({
+                "media_id": media["media_id"],
+                "file_url": file_url,
+                "ai_caption": caption,
+                "tagged_users": tagged_users
+            })
+        
+        return {"status": "success", "event_id": event_id, "captions_generated": len(generated_captions), "captions": generated_captions}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate captions: {str(e)}")
+
+@router.post("/face/detect_local")
+async def detect_local(file: UploadFile = File(...)):
+    """Detect faces locally (MTCNN) returning boxes + probabilities."""
+    content = await file.read()
+    try:
+        return await emb.detect_faces_local(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/face/enroll_local")
+async def enroll_local(user_id: int, file: UploadFile = File(...)):
+    """Enroll a local embedding for a user using integer user_id (no Azure PersonGroup required)."""
+    content = await file.read()
+    try:
+        result = await emb.enroll_local(user_id=user_id, image_bytes=content)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/face/enroll_local_batch")
+async def enroll_local_batch(user_id: int, files: list[UploadFile] = File(...)):
+    """Enroll multiple images for a user; skips images with no detectable face."""
+    contents: list[bytes] = []
+    for f in files:
+        contents.append(await f.read())
+    try:
+        result = await emb.enroll_local_batch(user_id=user_id, images=contents)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/face/identify_local")
+async def identify_local(file: UploadFile = File(...), top_k: int = 3, threshold: float = 0.6, filter_matches: bool = False, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85):
+    """Identify a face against locally stored embeddings using cosine similarity."""
+    content = await file.read()
+    try:
+        result = await emb.identify_local(
+            image_bytes=content,
+            top_k=top_k,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/face/identify_multi_local")
+async def identify_multi_local(file: UploadFile = File(...), top_k_per_face: int = 3, threshold: float = 0.6, filter_matches: bool = False, min_prob: float = 0.0, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85, exclusive_assignment: bool = False):
+    """Identify all faces in an image against locally stored embeddings; returns results per face."""
+    content = await file.read()
+    try:
+        result = await emb.identify_multi_local(
+            image_bytes=content,
+            top_k_per_face=top_k_per_face,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            min_prob=min_prob,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+            exclusive_assignment=exclusive_assignment,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/face/identify_local_grouped")
+async def identify_local_grouped(file: UploadFile = File(...), top_k: int = 3, threshold: float = 0.6, filter_matches: bool = False, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85):
+    """Identify using grouped embeddings (max similarity per user)."""
+    content = await file.read()
+    try:
+        result = await emb.identify_local_grouped(
+            image_bytes=content,
+            top_k=top_k,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/face/identify_multi_local_grouped")
+async def identify_multi_local_grouped(file: UploadFile = File(...), top_k_per_face: int = 3, threshold: float = 0.6, filter_matches: bool = False, min_prob: float = 0.0, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85, exclusive_assignment: bool = False):
+    """Multi-face identification with per-user grouped similarity aggregation."""
+    content = await file.read()
+    try:
+        result = await emb.identify_multi_local_grouped(
+            image_bytes=content,
+            top_k_per_face=top_k_per_face,
+            threshold=threshold,
+            filter_matches=filter_matches,
+            min_prob=min_prob,
+            auto_enroll_on_identify=auto_enroll_on_identify,
+            auto_enroll_min_similarity=auto_enroll_min_similarity,
+            exclusive_assignment=exclusive_assignment,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/face/auto_enroll")
+async def auto_enroll(file: UploadFile = File(...), min_similarity: float = 0.8, min_prob: float = 0.0):
+    """Automatically enroll a face if exactly one face and similarity is confident."""
+    content = await file.read()
+    try:
+        result = await emb.auto_enroll_if_confident(image_bytes=content, min_similarity=min_similarity, min_prob=min_prob)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+

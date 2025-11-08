@@ -1,16 +1,63 @@
 from typing import Union
+import os
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover
+    load_dotenv = None
 
 from fastapi import FastAPI
-from api.handlers import router as slideshow_router
+
+# Load local .env files if available (repo root and backend/.env) BEFORE importing routers/services
+def _manual_load_env(env_path: Path) -> None:
+    try:
+        if not env_path.exists():
+            return
+        with env_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    os.environ.setdefault(key, val)
+    except Exception:
+        # silent fallback
+        pass
+
+try:
+    # Repo root .env
+    _root_env = Path(__file__).resolve().parent.parent / ".env"
+    # backend/.env
+    _backend_env = Path(__file__).resolve().parent / ".env"
+
+    if load_dotenv:
+        if _root_env.exists():
+            load_dotenv(_root_env)
+        if _backend_env.exists():
+            load_dotenv(_backend_env)
+    else:
+        # Fallback minimal parser if python-dotenv isn't installed
+        _manual_load_env(_root_env)
+        _manual_load_env(_backend_env)
+except Exception:
+    # Non-fatal if dotenv load fails
+    pass
+
+from api.handlers import router as api_router
+
 
 app = FastAPI(
     title="Dumpy Backend API",
     description="AI-powered slideshow generation service",
-    version="1.0.0"
+    version="1.0.0",
 )
 
-# Include routers
-app.include_router(slideshow_router, prefix="/api", tags=["slideshow"])
+# include the API router (enroll/identify)
+app.include_router(api_router, prefix="/api")
 
 
 @app.get("/")
