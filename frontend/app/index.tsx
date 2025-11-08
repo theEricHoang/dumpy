@@ -8,7 +8,7 @@ export default function Index() {
 
   useEffect(() => {
     const checkOnboarding = async () => {
-      const value = await AsyncStorage.getItem('hasOnboarded');
+      const value = await AsyncStorage.getItem('hasSeenOnboarding');
       setIsOnboarded(value === 'true');
     };
     checkOnboarding();
@@ -24,5 +24,5 @@ export default function Index() {
 
   return isOnboarded
     ? <Redirect href="/(tabs)" />
-    : <Redirect href="/onboarding/Onboarding1" />;
+    : <Redirect href="/onboarding" />;
 }
