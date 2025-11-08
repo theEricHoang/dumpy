@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # Prefer explicit service role key name (write privileges). Keep legacy SUPABASE_KEY fallback.
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None  # legacy / anon key (read-mostly)
+    REPLICATE_API_TOKEN: Optional[str] = None
 
     class Config:
         env_file = ".env"

@@ -6,6 +6,12 @@ for endpoints involving triggering AI workflows:
 - music generation
 - slideshow generation
 
+set up env vars:
+```bash
+cp .env.example .env
+```
+then edit and type in appropriate values
+
 to run dev server:
 ```bash
 fastapi dev main.py

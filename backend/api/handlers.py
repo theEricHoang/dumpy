@@ -3,9 +3,13 @@ from typing import Optional
 import os
 import httpx
 
-from .schemas import SlideshowRequest, SlideshowResponse, CaptionRequest, CaptionResponse
-from ..services.caption_service import generate_caption
-from ..services import face_embedding_service as emb
+from api.schemas import SlideshowRequest, SlideshowResponse
+
+# TODO: Import services once implemented
+from services import face_embedding_service as emb
+from services.caption_service import generate_captions
+from services.music_service import generate_music
+# from services.slideshow_service import create_slideshow
 
 router = APIRouter()
 
@@ -40,11 +44,48 @@ async def generate_slideshow(
         {"image_url": image_urls[0], "caption": f"A wonderful moment - {theme_prompt}"},
         {"image_url": image_urls[1], "caption": f"Beautiful memories - {theme_prompt}"},
         {"image_url": image_urls[2], "caption": f"Peaceful scenery - {theme_prompt}"}
-    ]
-
-    music_url = music_choice or f"https://placeholder-music.com/generated/{event_id}.mp3"
-    slideshow_url = f"https://placeholder-videos.com/slideshow/{event_id}.mp4"
-
+    ]  # PLACEHOLDER
+    print(f"[PLACEHOLDER] Generated {len(captions)} captions with theme: {theme_prompt}")
+    
+    # Handle music selection or generation
+    music_data = None
+    if music_choice:
+        # Music was pre-selected by user
+        music_data = {"url": music_choice}
+        print(f"Using pre-selected music: {music_choice}")
+    else:
+        # Generate music based on theme_prompt
+        try:
+            music_data = await generate_music(theme_prompt, duration=30)
+            print(f"Generated music based on theme: {theme_prompt}")
+        except Exception as e:
+            print(f"[ERROR] Failed to generate music: {str(e)}")
+            # Continue without music rather than failing the entire request
+            music_data = None
+    
+    # TODO: Call slideshow_service to compile everything into a video
+    # Example:
+    # slideshow_result = await create_slideshow(
+    #     images=image_urls,
+    #     captions=captions,
+    #     music_data=music_data,
+    #     theme_prompt=theme_prompt
+    # )
+    # Returns: {"video_url": "https://...", "duration": 45.3}
+    slideshow_url = f"https://placeholder-videos.com/slideshow/{event_id}.mp4"  # PLACEHOLDER
+    print(f"[PLACEHOLDER] Slideshow compilation started")
+    print(f"[PLACEHOLDER] Images: {len(image_urls)}, Captions: {len(captions)}, Music: {music_data is not None}")
+    
+    # TODO: Store slideshow metadata in Supabase
+    # Example:
+    # supabase.table("slideshows").insert({
+    #     "event_id": event_id,
+    #     "user_id": user_id,
+    #     "video_url": slideshow_url,
+    #     "theme_prompt": theme_prompt,
+    #     "created_at": datetime.now().isoformat()
+    # }).execute()
+    
     return SlideshowResponse(
         status="success",
         message="Slideshow generation completed successfully",

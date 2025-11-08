@@ -1,5 +1,5 @@
 from openai import AzureOpenAI
-from backend.core.config import settings
+from core.config import settings
 import json
 
 client = AzureOpenAI(
