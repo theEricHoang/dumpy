@@ -1,17 +1,23 @@
 from fastapi import APIRouter, HTTPException, Header, UploadFile, File
-from typing import Optional
+from typing import Optional, Dict
 from supabase import create_client, Client
 import os
 import httpx
+import uuid
+import asyncio
+from datetime import datetime
 
-from api.schemas import SlideshowRequest, SlideshowResponse
+from api.schemas import SlideshowRequest, SlideshowResponse, SlideshowStatusResponse
 
 # TODO: Import services once implemented
 from core.config import settings
 from services import face_embedding_service as emb
-from services.caption_service import generate_caption
-from services.music_service import generate_music
-# from services.slideshow_service import create_slideshow
+from services.slideshow_service import job_status_store, process_slideshow
+from services.caption_service import (
+    generate_caption,
+    fetch_event_media_mapping,
+    generate_event_captions_batch
+)
 
 router = APIRouter()
 supabase: Client = create_client(
@@ -29,133 +35,101 @@ async def generate_slideshow(
 ):
     """
     Generate a slideshow video from event images with AI-powered captions and music.
+    Returns immediately with a job_id for tracking progress.
     """
-    # Extract event details from request
-    event_id = request.event_id
-    music_choice = request.music_choice
-    theme_prompt = request.theme_prompt
-
-    # Placeholder user extraction
-    user_id = "placeholder_user_id"
-
-    # Placeholder image URLs (replace with actual storage fetching)
-    image_urls = [
-        f"https://placeholder.blob.core.windows.net/event-{event_id}/image1.jpg",
-        f"https://placeholder.blob.core.windows.net/event-{event_id}/image2.jpg",
-        f"https://placeholder.blob.core.windows.net/event-{event_id}/image3.jpg",
-    ]
-
-    # Placeholder face detection/captions/music pipeline
-    captions = [
-        {"image_url": image_urls[0], "caption": f"A wonderful moment - {theme_prompt}"},
-        {"image_url": image_urls[1], "caption": f"Beautiful memories - {theme_prompt}"},
-        {"image_url": image_urls[2], "caption": f"Peaceful scenery - {theme_prompt}"}
-    ]  # PLACEHOLDER
-    print(f"[PLACEHOLDER] Generated {len(captions)} captions with theme: {theme_prompt}")
+    # Generate unique job ID
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
     
-    # Handle music selection or generation
-    music_data = None
-    if music_choice:
-        # Music was pre-selected by user
-        music_data = {"url": music_choice}
-        print(f"Using pre-selected music: {music_choice}")
-    else:
-        # Generate music based on theme_prompt
-        try:
-            music_data = await generate_music(theme_prompt, duration=30)
-            print(f"Generated music based on theme: {theme_prompt}")
-        except Exception as e:
-            print(f"[ERROR] Failed to generate music: {str(e)}")
-            # Continue without music rather than failing the entire request
-            music_data = None
+    # TODO: Extract user ID from authorization header (Supabase JWT)
+    user_id = 1  # PLACEHOLDER - should be extracted from JWT token
     
-    # TODO: Call slideshow_service to compile everything into a video
-    # Example:
-    # slideshow_result = await create_slideshow(
-    #     images=image_urls,
-    #     captions=captions,
-    #     music_data=music_data,
-    #     theme_prompt=theme_prompt
-    # )
-    # Returns: {"video_url": "https://...", "duration": 45.3}
-    slideshow_url = f"https://placeholder-videos.com/slideshow/{event_id}.mp4"  # PLACEHOLDER
-    print(f"[PLACEHOLDER] Slideshow compilation started")
-    print(f"[PLACEHOLDER] Images: {len(image_urls)}, Captions: {len(captions)}, Music: {music_data is not None}")
+    # Initialize job status
+    job_status_store[job_id] = {
+        "status": "processing",
+        "message": "Starting slideshow generation...",
+        "slideshow_url": None,
+        "error": None
+    }
     
-    # TODO: Store slideshow metadata in Supabase
-    # Example:
-    # supabase.table("slideshows").insert({
-    #     "event_id": event_id,
-    #     "user_id": user_id,
-    #     "video_url": slideshow_url,
-    #     "theme_prompt": theme_prompt,
-    #     "created_at": datetime.now().isoformat()
-    # }).execute()
+    # Start background processing using asyncio.create_task for true non-blocking execution
+    asyncio.create_task(process_slideshow(job_id, request, user_id))
+    
+    print(f"[JOB {job_id}] Started for event {request.event_id}")
     
     return SlideshowResponse(
-        status="success",
-        message="Slideshow generation completed successfully",
-        slideshow_url=slideshow_url,
-        job_id=f"job_{event_id}"
+        status="processing",
+        message="Slideshow generation started! Use the job_id to check status.",
+        job_id=job_id
     )
+
+
+@router.get("/slideshow/status/{job_id}", response_model=SlideshowStatusResponse)
+async def get_slideshow_status(job_id: str):
+    """
+    Get the current status of a slideshow generation job.
+    Frontend should poll this endpoint every 5 seconds.
+    """
+    if job_id not in job_status_store:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    status = job_status_store[job_id]
+    return SlideshowStatusResponse(**status)
 
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "slideshow-api"}
 
 @router.get("/event/{event_id}/media-mapping")
-async def get_event_media_mapping(event_id: int):
+async def get_event_media_mapping_endpoint(event_id: int):
     """
     Fetch all media and tagged users for an event for caption generation.
     """
     try:
-        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
-        if not response.data:
-            raise HTTPException(status_code=404, detail="Event not found or no media available.")
-        return response.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch media mapping: {str(e)}")
+        media_items = await fetch_event_media_mapping(event_id)
+        return media_items
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/event/{event_id}/generate-captions")
-async def generate_event_captions(event_id: int):
+async def generate_event_captions_endpoint(event_id: int, theme: str = "playful"):
     """
     Generate captions for all media in an event using tagged user names and metadata.
     """
     try:
-        # Fetch all media + tagged users
-        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
-        media_items = response.data or []
-
-        if not media_items:
-            raise HTTPException(status_code=404, detail="Event not found or no media available.")
+        # Use the caption service function
+        captions = await generate_event_captions_batch(
+            event_id=event_id,
+            theme=theme,
+            update_database=True
+        )
         
+        # Fetch media items again to get media_ids for response
+        media_items = await fetch_event_media_mapping(event_id)
+        
+        # Build detailed response matching original format
         generated_captions = []
-        for media in media_items:
+        for media, caption_data in zip(media_items, captions):
             tagged_users = [u["username"] for u in (media.get("tagged_users") or [])]
-            file_url = media["file_url"]
-            location = media.get("location", "unknown location")
-
-            # Generate caption using Azure OpenAI service
-            caption = generate_caption(
-                image_url=file_url,
-                tagged_names=tagged_users,
-                location=location
-            )
-
-            # Update caption in Supabase
-            supabase.table("media").update({"ai_caption": caption}).eq("media_id", media["media_id"]).execute()
-
             generated_captions.append({
                 "media_id": media["media_id"],
-                "file_url": file_url,
-                "ai_caption": caption,
+                "file_url": caption_data["image_url"],
+                "ai_caption": caption_data["caption"],
                 "tagged_users": tagged_users
             })
         
-        return {"status": "success", "event_id": event_id, "captions_generated": len(generated_captions), "captions": generated_captions}
+        return {
+            "status": "success",
+            "event_id": event_id,
+            "captions_generated": len(generated_captions),
+            "captions": generated_captions
+        }
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate captions: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/face/detect_local")
 async def detect_local(file: UploadFile = File(...)):
