@@ -3,7 +3,7 @@ from typing import Optional
 
 
 class SlideshowRequest(BaseModel):
-    event_id: str
+    event_id: int
     music_choice: Optional[str] = None  # URL or ID of pre-selected music, if any
     theme_prompt: str  # e.g., "A nostalgic summer vacation"
 

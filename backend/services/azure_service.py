@@ -4,6 +4,8 @@ from azure.storage.blob import BlobServiceClient
 from supabase import create_client, Client
 from datetime import datetime
 import uuid
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 # Initialize Supabase client
 supabase: Client = create_client(
@@ -11,7 +13,10 @@ supabase: Client = create_client(
     settings.SUPABASE_SERVICE_ROLE_KEY
 )
 
-async def upload_video_to_blob_storage(video_path: str, event_id: str) -> str:
+# Thread pool for blocking Azure operations
+_executor = ThreadPoolExecutor(max_workers=2)
+
+async def upload_video_to_blob_storage(video_path: str, event_id: int) -> str:
     """
     Upload video file to Azure Blob Storage.
     
@@ -47,9 +52,12 @@ async def upload_video_to_blob_storage(video_path: str, event_id: str) -> str:
         
         print(f"[AzureService] Uploading video to blob: {blob_name}")
         
-        # Upload video file
-        with open(video_path, "rb") as video_file:
-            blob_client.upload_blob(video_file, overwrite=True)
+        # Upload video file in thread pool (blocking I/O operation)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            _executor,
+            lambda: blob_client.upload_blob(open(video_path, "rb"), overwrite=True)
+        )
         
         blob_url = blob_client.url
         print(f"[AzureService] Successfully uploaded video to: {blob_url}")
@@ -61,8 +69,8 @@ async def upload_video_to_blob_storage(video_path: str, event_id: str) -> str:
 
 
 async def save_slideshow_to_database(
-    event_id: str,
-    user_id: str,
+    event_id: int,
+    user_id: int,
     slideshow_url: str,
     theme_prompt: str,
     music_choice: Optional[str],
@@ -72,8 +80,8 @@ async def save_slideshow_to_database(
     Save slideshow metadata to Supabase.
     
     Args:
-        event_id: The event this slideshow belongs to
-        user_id: The user who created the slideshow
+        event_id: The event this slideshow belongs to (integer)
+        user_id: The user who created the slideshow (integer)
         slideshow_url: Azure Blob Storage URL to the video
         theme_prompt: The theme used for caption generation
         music_choice: Pre-selected music or None if AI-generated

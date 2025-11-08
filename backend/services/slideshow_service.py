@@ -9,9 +9,20 @@ import uuid
 import random
 import httpx
 from PIL import Image
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 # in memory job status store
 job_status_store: Dict[str, dict] = {}
+
+# Thread pool for blocking operations (FFmpeg)
+_executor = ThreadPoolExecutor(max_workers=2)
+
+
+async def run_ffmpeg_async(stream) -> None:
+    """Run FFmpeg command in thread pool to avoid blocking event loop."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(_executor, lambda: ffmpeg.run(stream, capture_stdout=True, capture_stderr=True))
 
 
 async def download_image(image_url: str, output_path: str) -> str:
@@ -203,7 +214,7 @@ async def create_slideshow(
                     .overwrite_output()
                 )
                 
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+                await run_ffmpeg_async(stream)
                 segment_files.append(segment_path)
                 
             except ffmpeg.Error as e:
@@ -228,7 +239,7 @@ async def create_slideshow(
                 .output(temp_video_no_audio, c='copy')
                 .overwrite_output()
             )
-            ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+            await run_ffmpeg_async(stream)
             
         except ffmpeg.Error as e:
             error_msg = e.stderr.decode() if e.stderr else str(e)
@@ -250,7 +261,7 @@ async def create_slideshow(
                     .overwrite_output()
                 )
                 
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+                await run_ffmpeg_async(stream)
                 
             except ffmpeg.Error as e:
                 error_msg = e.stderr.decode() if e.stderr else str(e)
@@ -285,7 +296,7 @@ async def create_slideshow(
         except Exception as e:
             print(f"[SLIDESHOW] WARNING: Failed to cleanup temp dir: {str(e)}")
 
-async def process_slideshow(job_id: str, request: SlideshowRequest, user_id: str):
+async def process_slideshow(job_id: str, request: SlideshowRequest, user_id: int):
     """
     Background task to process slideshow generation with stage-based status updates.
     """

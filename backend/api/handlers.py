@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Header, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Header, UploadFile, File
 from typing import Optional, Dict
 from supabase import create_client, Client
 import os
 import httpx
 import uuid
+import asyncio
 from datetime import datetime
 
 from api.schemas import SlideshowRequest, SlideshowResponse, SlideshowStatusResponse
@@ -30,7 +31,6 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 @router.post("/slideshow/generate", response_model=SlideshowResponse)
 async def generate_slideshow(
     request: SlideshowRequest,
-    background_tasks: BackgroundTasks,
     authorization: Optional[str] = Header(None)
 ):
     """
@@ -41,7 +41,7 @@ async def generate_slideshow(
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     
     # TODO: Extract user ID from authorization header (Supabase JWT)
-    user_id = "placeholder_user_id"  # PLACEHOLDER
+    user_id = 1  # PLACEHOLDER - should be extracted from JWT token
     
     # Initialize job status
     job_status_store[job_id] = {
@@ -51,8 +51,8 @@ async def generate_slideshow(
         "error": None
     }
     
-    # Start background processing
-    background_tasks.add_task(process_slideshow, job_id, request, user_id)
+    # Start background processing using asyncio.create_task for true non-blocking execution
+    asyncio.create_task(process_slideshow(job_id, request, user_id))
     
     print(f"[JOB {job_id}] Started for event {request.event_id}")
     

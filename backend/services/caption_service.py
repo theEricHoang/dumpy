@@ -1,10 +1,10 @@
-from openai import AzureOpenAI
+from openai import AsyncAzureOpenAI
 from core.config import settings
 from supabase import create_client, Client
 from typing import List, Dict, Optional
 import json
 
-client = AzureOpenAI(
+client = AsyncAzureOpenAI(
     api_key=settings.AZURE_OPENAI_API_KEY,
     azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
     api_version="2024-12-01-preview",
@@ -16,10 +16,10 @@ supabase: Client = create_client(
     settings.SUPABASE_SERVICE_ROLE_KEY
 )
 
-def generate_caption(image_url: str,
-                     tagged_names: list[str] | None = None,
-                     location: str | None = None,
-                     theme: str = "playful"):
+async def generate_caption(image_url: str,
+                           tagged_names: list[str] | None = None,
+                           location: str | None = None,
+                           theme: str = "playful"):
     """
     Generate a short caption for an image using Azure OpenAI.
     This version integrates with the /event/{id}/generate-captions endpoint.
@@ -44,7 +44,7 @@ def generate_caption(image_url: str,
     )
 
     try:
-        resp = client.chat.completions.create(
+        resp = await client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -134,7 +134,7 @@ async def generate_event_captions_batch(
             media_id = media["media_id"]
             
             # Generate caption using Azure OpenAI
-            caption = generate_caption(
+            caption = await generate_caption(
                 image_url=file_url,
                 tagged_names=tagged_users,
                 location=location,

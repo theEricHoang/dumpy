@@ -1,12 +1,17 @@
 from typing import Dict, Optional
 from core.config import settings
 import replicate
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import os
 
 # replicate needs token accessible from command line
 if settings.REPLICATE_API_TOKEN:
     os.environ['REPLICATE_API_TOKEN'] = settings.REPLICATE_API_TOKEN
+
+# Thread pool for blocking Replicate API calls
+_executor = ThreadPoolExecutor(max_workers=2)
 
 async def generate_music(theme_prompt: str, duration: int = 30, temp_dir: str = "/tmp") -> Dict[str, str]:
     """
@@ -42,9 +47,14 @@ async def generate_music(theme_prompt: str, duration: int = 30, temp_dir: str = 
         "duration": duration
     }
     
-    output = replicate.run(
-        "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",
-        input=input
+    # Run blocking Replicate API call in thread pool
+    loop = asyncio.get_event_loop()
+    output = await loop.run_in_executor(
+        _executor,
+        lambda: replicate.run(
+            "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",
+            input=input
+        )
     )
 
     # Save to temporary file with unique name
