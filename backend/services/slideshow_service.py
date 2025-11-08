@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 from api.schemas import SlideshowRequest
 from .music_service import generate_music
+from .caption_service import fetch_event_media_mapping, generate_event_captions_batch
 from .azure_service import upload_video_to_blob_storage, save_slideshow_to_database
 import os
 import ffmpeg
@@ -293,39 +294,27 @@ async def process_slideshow(job_id: str, request: SlideshowRequest, user_id: str
         music_choice = request.music_choice
         theme_prompt = request.theme_prompt
         
-        # Stage 1: Fetching images
+        # Stage 1: Fetching images and generating captions
         job_status_store[job_id] = {
             "status": "processing",
-            "message": "Fetching images from event...",
+            "message": "Fetching images and generating captions...",
             "slideshow_url": None,
             "error": None
         }
-        print(f"[JOB {job_id}] Stage 1: Fetching images")
+        print(f"[JOB {job_id}] Stage 1 & 2: Fetching images and generating captions")
         
-        # TODO: Replace with actual image fetching logic from your teammate
-        # Example:
-        # images = await fetch_images_from_event(event_id)
-        image_urls = [
-            f"https://placeholder.blob.core.windows.net/event-{event_id}/image1.jpg",
-            f"https://placeholder.blob.core.windows.net/event-{event_id}/image2.jpg",
-            f"https://placeholder.blob.core.windows.net/event-{event_id}/image3.jpg",
-        ]  # PLACEHOLDER
-        print(f"[JOB {job_id}] Fetched {len(image_urls)} images")
+        # Fetch media mapping and generate captions in one call
+        # This returns [{"image_url": "...", "caption": "..."}, ...]
+        captions = await generate_event_captions_batch(
+            event_id=event_id,
+            theme=theme_prompt or "playful",
+            update_database=True  # Save captions to Supabase
+        )
         
-        # Stage 2: Generating captions
-        job_status_store[job_id]["message"] = "Generating captions for images..."
-        print(f"[JOB {job_id}] Stage 2: Generating captions")
+        # Extract image URLs for video generation
+        image_urls = [c["image_url"] for c in captions]
         
-        # TODO: Replace with actual caption generation logic from your teammate
-        # This should take the images with their tagged users and generate captions
-        # Example:
-        # captions = await generate_captions(event_id, theme_prompt)
-        captions = [
-            {"image_url": image_urls[0], "caption": f"A wonderful moment - {theme_prompt}"},
-            {"image_url": image_urls[1], "caption": f"Beautiful memories - {theme_prompt}"},
-            {"image_url": image_urls[2], "caption": f"Peaceful scenery - {theme_prompt}"}
-        ]  # PLACEHOLDER
-        print(f"[JOB {job_id}] Generated {len(captions)} captions")
+        print(f"[JOB {job_id}] Fetched {len(image_urls)} images and generated {len(captions)} captions")
         
         # Stage 3: Generating music
         job_status_store[job_id]["message"] = "Generating music..."

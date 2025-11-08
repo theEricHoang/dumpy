@@ -12,7 +12,11 @@ from api.schemas import SlideshowRequest, SlideshowResponse, SlideshowStatusResp
 from core.config import settings
 from services import face_embedding_service as emb
 from services.slideshow_service import job_status_store, process_slideshow
-from services.caption_service import generate_caption
+from services.caption_service import (
+    generate_caption,
+    fetch_event_media_mapping,
+    generate_event_captions_batch
+)
 
 router = APIRouter()
 supabase: Client = create_client(
@@ -76,58 +80,56 @@ async def health_check():
     return {"status": "healthy", "service": "slideshow-api"}
 
 @router.get("/event/{event_id}/media-mapping")
-async def get_event_media_mapping(event_id: int):
+async def get_event_media_mapping_endpoint(event_id: int):
     """
     Fetch all media and tagged users for an event for caption generation.
     """
     try:
-        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
-        if not response.data:
-            raise HTTPException(status_code=404, detail="Event not found or no media available.")
-        return response.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch media mapping: {str(e)}")
+        media_items = await fetch_event_media_mapping(event_id)
+        return media_items
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/event/{event_id}/generate-captions")
-async def generate_event_captions(event_id: int):
+async def generate_event_captions_endpoint(event_id: int, theme: str = "playful"):
     """
     Generate captions for all media in an event using tagged user names and metadata.
     """
     try:
-        # Fetch all media + tagged users
-        response = supabase.rpc("get_event_media_mapping", {"event_id_input": event_id}).execute()
-        media_items = response.data or []
-
-        if not media_items:
-            raise HTTPException(status_code=404, detail="Event not found or no media available.")
+        # Use the caption service function
+        captions = await generate_event_captions_batch(
+            event_id=event_id,
+            theme=theme,
+            update_database=True
+        )
         
+        # Fetch media items again to get media_ids for response
+        media_items = await fetch_event_media_mapping(event_id)
+        
+        # Build detailed response matching original format
         generated_captions = []
-        for media in media_items:
+        for media, caption_data in zip(media_items, captions):
             tagged_users = [u["username"] for u in (media.get("tagged_users") or [])]
-            file_url = media["file_url"]
-            location = media.get("location", "unknown location")
-
-            # Generate caption using Azure OpenAI service
-            caption = generate_caption(
-                image_url=file_url,
-                tagged_names=tagged_users,
-                location=location
-            )
-
-            # Update caption in Supabase
-            supabase.table("media").update({"ai_caption": caption}).eq("media_id", media["media_id"]).execute()
-
             generated_captions.append({
                 "media_id": media["media_id"],
-                "file_url": file_url,
-                "ai_caption": caption,
+                "file_url": caption_data["image_url"],
+                "ai_caption": caption_data["caption"],
                 "tagged_users": tagged_users
             })
         
-        return {"status": "success", "event_id": event_id, "captions_generated": len(generated_captions), "captions": generated_captions}
+        return {
+            "status": "success",
+            "event_id": event_id,
+            "captions_generated": len(generated_captions),
+            "captions": generated_captions
+        }
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate captions: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/face/detect_local")
 async def detect_local(file: UploadFile = File(...)):
