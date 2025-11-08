@@ -12,6 +12,7 @@ from api.schemas import SlideshowRequest, SlideshowResponse, SlideshowStatusResp
 from core.config import settings
 from services import face_embedding_service as emb
 from services.slideshow_service import job_status_store, process_slideshow
+from services.caption_service import generate_caption
 
 router = APIRouter()
 supabase: Client = create_client(
