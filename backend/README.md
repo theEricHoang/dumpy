@@ -12,6 +12,14 @@ cp .env.example .env
 ```
 then edit and type in appropriate values
 
+install ffmpeg
+mac:
+```bash
+brew install ffmpeg
+```
+
+windows: https://www.ffmpeg.org/download.html
+
 to run dev server:
 ```bash
 fastapi dev main.py

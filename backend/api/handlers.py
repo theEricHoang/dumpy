@@ -21,6 +21,7 @@ supabase: Client = create_client(
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
 @router.post("/slideshow/generate", response_model=SlideshowResponse)
 async def generate_slideshow(
     request: SlideshowRequest,
