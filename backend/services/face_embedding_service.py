@@ -5,11 +5,11 @@ to compute 512-D face embeddings and perform cosine-similarity-based identificat
 
 Storage options:
 - If SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set, embeddings are stored in a
-  Supabase table `face_embeddings` with columns:
-    - id: uuid (default gen_random_uuid())
-    - user_id: text
-    - embedding: jsonb (array of floats)
-    - created_at: timestamptz default now()
+    Supabase table `face_embeddings` with columns:
+        - id: uuid (default gen_random_uuid())
+        - user_id: integer (FK → users.id)
+        - embedding: jsonb (array of floats)
+        - created_at: timestamptz default now()
 - Otherwise, embeddings are stored in backend/data/embeddings.json as a simple list.
 
 This keeps the app runnable even without Azure PersonGroup recognition access.
@@ -73,8 +73,8 @@ class FaceEmbedder:
         # Pick largest box
         areas = [max(0.0, float((x2 - x1) * (y2 - y1))) for (x1, y1, x2, y2) in boxes]
         idx = int(max(range(len(areas)), key=lambda i: areas[i]))
-        # Extract aligned face using MTCNN forward to get exact cropped tensor
-        faces = self.mtcnn(img)
+        # Extract aligned face from the chosen box to guarantee index alignment
+        faces = self.mtcnn.extract(img, boxes, save_path=None)
         if faces is None or faces.shape[0] == 0:
             return None
         face_tensor = faces[idx].unsqueeze(0).to(self.device)
@@ -85,6 +85,39 @@ class FaceEmbedder:
         if norm == 0.0:
             return emb.astype(float).tolist()
         return (emb / norm).astype(float).tolist()
+
+    def embed_all_faces(self, image_bytes: bytes) -> List[Dict[str, Any]]:
+        """
+        Return embeddings for all detected faces with their boxes and probs.
+        Output: [{"box": [x1,y1,x2,y2], "prob": float, "embedding": [512 floats]}]
+        """
+        img = _Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        boxes, probs = self.mtcnn.detect(img)
+        if boxes is None or len(boxes) == 0:
+            return []
+        # Extract aligned faces using the same detected boxes to keep order consistent
+        faces = self.mtcnn.extract(img, boxes, save_path=None)
+        if faces is None or faces.shape[0] == 0:
+            return []
+        faces = faces.to(self.device)
+        with _torch.no_grad():
+            embs = self.model(faces).cpu().numpy()
+        # Normalize each
+        results: List[Dict[str, Any]] = []
+        for i in range(embs.shape[0]):
+            vec = embs[i]
+            norm = float(_np.linalg.norm(vec))
+            if norm != 0.0:
+                vec = (vec / norm)
+            b = boxes[i]
+            p = probs[i] if probs is not None and i < len(probs) else None
+            x1, y1, x2, y2 = [float(v) for v in b]
+            results.append({
+                "box": [x1, y1, x2, y2],
+                "prob": float(p) if p is not None else None,
+                "embedding": vec.astype(float).tolist(),
+            })
+        return results
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -104,7 +137,7 @@ LOCAL_EMB_PATH = Path(__file__).resolve().parent.parent / "data" / "embeddings.j
 LOCAL_EMB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-async def save_embedding(user_id: str, embedding: List[float]) -> Dict[str, Any]:
+async def save_embedding(user_id: int, embedding: List[float]) -> Dict[str, Any]:
     if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
         async with httpx.AsyncClient(timeout=20.0) as c:
             url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/face_embeddings"
@@ -177,7 +210,7 @@ def _write_local(items: List[Dict[str, Any]]) -> None:
         pass
 
 
-async def enroll_local(user_id: str, image_bytes: bytes) -> Dict[str, Any]:
+async def enroll_local(user_id: int, image_bytes: bytes) -> Dict[str, Any]:
     embedder = FaceEmbedder()
     emb = embedder.embed_image(image_bytes)
     if emb is None:
@@ -206,6 +239,40 @@ async def identify_local(image_bytes: bytes, top_k: int = 3, threshold: float = 
         {"user_id": uid, "similarity": round(float(sim), 4), "match": bool(sim >= threshold)} for uid, sim in top
     ]
     return {"ok": True, "results": results, "threshold": threshold}
+
+async def identify_multi_local(image_bytes: bytes, top_k_per_face: int = 3, threshold: float = 0.6) -> Dict[str, Any]:
+    """
+    Identify all faces in the image against stored embeddings.
+    Returns one result block per detected face with its box, prob, and top_k matches.
+    """
+    embedder = FaceEmbedder()
+    faces = embedder.embed_all_faces(image_bytes)
+    if not faces:
+        return {"ok": False, "reason": "no_face_detected", "faces": []}
+    items = await load_all_embeddings()
+    all_results: List[Dict[str, Any]] = []
+    for f in faces:
+        query = f["embedding"]
+        scored: List[Tuple[str, float]] = []
+        for it in items:
+            uid = it.get("user_id")
+            vec = it.get("embedding")
+            if uid is None or not isinstance(vec, list):
+                continue
+            sim = cosine_similarity(query, vec)
+            scored.append((uid, sim))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top = scored[: max(1, top_k_per_face)]
+        matches = [
+            {"user_id": uid, "similarity": round(float(sim), 4), "match": bool(sim >= threshold)}
+            for uid, sim in top
+        ]
+        all_results.append({
+            "box": f.get("box"),
+            "prob": f.get("prob"),
+            "results": matches,
+        })
+    return {"ok": True, "faces": all_results, "threshold": threshold}
 
 async def detect_faces_local(image_bytes: bytes) -> Dict[str, Any]:
     """Return bounding boxes (x1,y1,x2,y2) and probabilities using MTCNN only."""

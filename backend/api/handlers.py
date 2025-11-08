@@ -4,7 +4,7 @@ import os
 import httpx
 
 from .schemas import SlideshowRequest, SlideshowResponse, CaptionRequest, CaptionResponse
-from services.caption_service import generate_caption
+from ..services.caption_service import generate_caption
 from ..services import face_embedding_service as emb
 
 router = APIRouter()
@@ -67,8 +67,8 @@ async def detect_local(file: UploadFile = File(...)):
 
 
 @router.post("/face/enroll_local")
-async def enroll_local(user_id: str, file: UploadFile = File(...)):
-    """Enroll a local embedding for a user (no Azure PersonGroup required)."""
+async def enroll_local(user_id: int, file: UploadFile = File(...)):
+    """Enroll a local embedding for a user using integer user_id (no Azure PersonGroup required)."""
     content = await file.read()
     try:
         result = await emb.enroll_local(user_id=user_id, image_bytes=content)
@@ -83,6 +83,17 @@ async def identify_local(file: UploadFile = File(...), top_k: int = 3, threshold
     content = await file.read()
     try:
         result = await emb.identify_local(image_bytes=content, top_k=top_k, threshold=threshold)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/face/identify_multi_local")
+async def identify_multi_local(file: UploadFile = File(...), top_k_per_face: int = 3, threshold: float = 0.6):
+    """Identify all faces in an image against locally stored embeddings; returns results per face."""
+    content = await file.read()
+    try:
+        result = await emb.identify_multi_local(image_bytes=content, top_k_per_face=top_k_per_face, threshold=threshold)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
