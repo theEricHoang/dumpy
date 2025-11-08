@@ -6,7 +6,7 @@ import httpx
 from api.schemas import SlideshowRequest, SlideshowResponse
 
 # TODO: Import services once implemented
-from services.face_service import face_embedding_service as emb
+from services import face_embedding_service as emb
 from services.caption_service import generate_captions
 from services.music_service import generate_music
 # from services.slideshow_service import create_slideshow
