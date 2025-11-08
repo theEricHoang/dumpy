@@ -24,6 +24,7 @@ MarkupSafe==3.0.3
 mdurl==0.1.2
 openai==2.7.1
 packaging==25.0
+Pillow==11.0.0
 pydantic==2.12.4
 pydantic-settings==2.11.0
 pydantic_core==2.41.5
