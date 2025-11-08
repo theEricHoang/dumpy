@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@azure/storage-blob": "^12.29.1",
     "@supabase/supabase-js": "^2.80.0"
   }
 }
