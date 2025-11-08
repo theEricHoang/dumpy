@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { supabase } from '../../lib/supabaseClient';
+import { getSupabase, hasSupabaseEnv } from '../../lib/supabaseClient';
 
-// Basic phone pattern (very lenient, adjust as needed)
-const PHONE_REGEX = /^[+]?[0-9]{7,15}$/;
+// Lightweight email shape check (let Supabase do final validation)
+const EMAIL_REGEX = /\S+@\S+\.\S+/;
 
 export default function SignUp() {
     const router = useRouter();
     const [username, setUsername] = useState('');
-    const [phone, setPhone] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -17,38 +17,66 @@ export default function SignUp() {
     const [info, setInfo] = useState<string | null>(null);
 
     const passwordsMatch = password && confirmPassword && password === confirmPassword;
-    const phoneValid = PHONE_REGEX.test(phone.trim());
+    const emailTrim = email.trim();
+    const emailValid = EMAIL_REGEX.test(emailTrim);
     const passwordStrongEnough = password.length >= 6;
-    const canSubmit = !loading && username && phoneValid && passwordStrongEnough && passwordsMatch;
+    const envOk = hasSupabaseEnv();
+    // Do not block submit purely on our regex; allow backend to validate too.
+    const canSubmit = !loading && username && emailTrim.length > 3 && passwordStrongEnough && passwordsMatch;
+    // Debug logs removed
 
     const handleSignUp = async () => {
         setError(null);
         setInfo(null);
         if (!canSubmit) return;
         setLoading(true);
-        // Phone + password sign up (requires phone auth enabled in Supabase project)
+        if (!hasSupabaseEnv()) {
+            setLoading(false);
+            setError('Supabase environment variables missing. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env.');
+            return;
+        }
+        // Email + password sign up
+        const supabase = getSupabase();
         const { data, error: signUpError } = await supabase.auth.signUp({
-            phone: phone.trim(),
+            email: emailTrim.toLowerCase(),
             password,
+            options: {
+                data: { username }
+            }
         });
         if (signUpError) {
             setLoading(false);
             setError(signUpError.message);
             return;
         }
-        // Save username in user metadata (will work after user object exists; session may be null until OTP confirm).
+        // If no session is returned, RLS will likely block inserts into public tables.
+        if (!data.session) {
+            setLoading(false);
+            setError('Signup succeeded but no session is active. Enable Email provider and disable email confirmation in Supabase Auth, or write via a backend service role.');
+            return;
+        }
+        // Immediately record username/email in custom "users" table.
+        // Your table uses an INTEGER PK named user_id. We should NOT attempt to write to user_id (serial/identity fills it).
+        // We'll insert only the known fields (email, username) and let the DB assign user_id.
+        // If you later want to link to auth.users, add a uuid column (e.g. auth_user_id uuid references auth.users(id))
+        // and switch this insert to include that column.
         if (data.user) {
-            const { error: metaError } = await supabase.auth.updateUser({ data: { username } });
-            if (metaError) {
-                setError(metaError.message);
+            // Your users.password column is NOT NULL; since Auth stores the real password securely
+            // and this table is not used for authentication, we store a neutral placeholder.
+            // Recommended: drop the NOT NULL constraint or remove this column entirely.
+            const { error: usersError } = await supabase
+                .from('users')
+                .insert({ email: emailTrim.toLowerCase(), username, password: '***' });
+            if (usersError) {
+                setLoading(false);
+                setError(`User record save failed: ${usersError.message}`);
+                return;
             }
         }
+
         setLoading(false);
-        // For phone sign-up, Supabase typically sends an OTP; user must verify before full session.
-        setInfo('Account created. Check SMS for verification code to complete sign-up.');
-        Alert.alert('Verify your phone', 'An OTP may have been sent to your phone. After verifying, continue.', [
-            { text: 'OK', onPress: () => router.replace('/') }
-        ]);
+        setInfo('Account created.');
+        router.replace('/');
     };
 
     return (
@@ -67,17 +95,19 @@ export default function SignUp() {
                         />
                     </View>
                     <View>
-                        <Text style={{ fontFamily: 'Poppins', fontSize: 14, marginBottom: 6 }}>Phone</Text>
+                        <Text style={{ fontFamily: 'Poppins', fontSize: 14, marginBottom: 6 }}>Email</Text>
                         <TextInput
-                            value={phone}
-                            onChangeText={setPhone}
-                            placeholder="+15551234567"
-                            keyboardType="phone-pad"
+                            value={email}
+                            onChangeText={setEmail}
+                            placeholder="you@example.com"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            textContentType="emailAddress"
+                            autoComplete="email"
                             style={{ backgroundColor: '#afa8a8ff', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, fontSize: 16 }}
                         />
-                        {!phoneValid && phone.length > 0 && (
-                            <Text style={{ color: '#b00020', fontFamily: 'Poppins', fontSize: 12, marginTop: 4 }}>invalid phone format</Text>
-                        )}
+                        {/* Email format hint removed; server will validate */}
                     </View>
                     <View>
                         <Text style={{ fontFamily: 'Poppins', fontSize: 14, marginBottom: 6 }}>Password</Text>
@@ -114,9 +144,9 @@ export default function SignUp() {
                     )}
 
                     <TouchableOpacity
-                        disabled={!canSubmit}
+                        disabled={!canSubmit || !envOk}
                         onPress={handleSignUp}
-                        style={{ backgroundColor: canSubmit ? '#000' : '#666', paddingVertical: 16, borderRadius: 18, alignItems: 'center' }}
+                        style={{ backgroundColor: (canSubmit && envOk) ? '#000' : '#666', paddingVertical: 16, borderRadius: 18, alignItems: 'center' }}
                     >
                         {loading ? (
                             <ActivityIndicator color="#fff" />
@@ -135,6 +165,11 @@ export default function SignUp() {
                             log in
                         </Text>
                     </Text>
+                    {!envOk && (
+                        <Text style={{ textAlign: 'center', marginTop: 8, fontFamily: 'Poppins', color: '#b00020', fontSize: 12 }}>
+                            Supabase env vars are not set. Create a .env.development with EXPO_PUBLIC_SUPABASE_URL & EXPO_PUBLIC_SUPABASE_ANON_KEY then restart Expo.
+                        </Text>
+                    )}
                 </View>
             </View>
         </KeyboardAvoidingView>
