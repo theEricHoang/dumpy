@@ -192,12 +192,13 @@ async def create_slideshow(
             
             try:
                 # Create segment using ffmpeg-python
+                # Note: We use frames parameter in output to ensure exact duration
                 stream = (
                     ffmpeg
-                    .input(img_path, loop=1, t=duration_per_image)
+                    .input(img_path, loop=1, framerate=fps)
                     .filter('zoompan', z=f'if(lte(zoom,1.0),{zoom_start},{zoom_start}+(on/{total_frames})*({zoom_end}-{zoom_start}))', d=total_frames, s='1920x1080', fps=fps)
                     .drawtext(text=safe_caption, fontcolor='white', fontsize=48, borderw=2, bordercolor='black', x='(w-text_w)/2', y='h-100')
-                    .output(segment_path, vcodec='libx264', pix_fmt='yuv420p')
+                    .output(segment_path, vcodec='libx264', pix_fmt='yuv420p', frames=total_frames)
                     .overwrite_output()
                 )
                 
