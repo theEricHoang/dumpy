@@ -89,8 +89,11 @@ export default function Feed() {
   const { height: windowHeight, width: SCREEN_WIDTH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   
-  // Calculate actual available height (excluding tab bar and safe areas)
-  const SCREEN_HEIGHT = windowHeight - insets.top - insets.bottom;
+  // Tab bar height from your _layout.tsx
+  const TAB_BAR_HEIGHT = 70;
+  
+  // Calculate actual available height (excluding just the tab bar)
+  const SCREEN_HEIGHT = windowHeight - TAB_BAR_HEIGHT;
   
   const [slideshows, setSlideshows] = useState<Slideshow[]>([]);
   const [loading, setLoading] = useState(true);
