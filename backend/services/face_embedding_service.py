@@ -219,17 +219,41 @@ async def enroll_local(user_id: int, image_bytes: bytes) -> Dict[str, Any]:
     return {"ok": True, "dim": len(emb), "storage": store}
 
 
-async def identify_local(image_bytes: bytes, top_k: int = 3, threshold: float = 0.6) -> Dict[str, Any]:
+async def enroll_local_batch(user_id: int, images: List[bytes]) -> Dict[str, Any]:
+    """Enroll multiple images for a user. Skips images with no detectable face."""
+    embedder = FaceEmbedder()
+    success = 0
+    failures: int = 0
+    reasons: List[str] = []
+    for img in images:
+        emb = embedder.embed_image(img)
+        if emb is None:
+            failures += 1
+            reasons.append("no_face_detected")
+            continue
+        _ = await save_embedding(user_id, emb)
+        success += 1
+    return {"ok": True, "enrolled": success, "skipped": failures}
+
+
+async def identify_local(
+    image_bytes: bytes,
+    top_k: int = 3,
+    threshold: float = 0.6,
+    filter_matches: bool = False,
+    auto_enroll_on_identify: bool = False,
+    auto_enroll_min_similarity: float = 0.85,
+) -> Dict[str, Any]:
     embedder = FaceEmbedder()
     query = embedder.embed_image(image_bytes)
     if query is None:
         return {"ok": False, "reason": "no_face_detected"}
     items = await load_all_embeddings()
-    scored: List[Tuple[str, float]] = []
+    scored: List[Tuple[int, float]] = []
     for it in items:
         uid = it.get("user_id")
         vec = it.get("embedding")
-        if not uid or not isinstance(vec, list):
+        if uid is None or not isinstance(vec, list):
             continue
         sim = cosine_similarity(query, vec)
         scored.append((uid, sim))
@@ -238,28 +262,100 @@ async def identify_local(image_bytes: bytes, top_k: int = 3, threshold: float = 
     results = [
         {"user_id": uid, "similarity": round(float(sim), 4), "match": bool(sim >= threshold)} for uid, sim in top
     ]
-    return {"ok": True, "results": results, "threshold": threshold}
+    if filter_matches:
+        results = [r for r in results if r["match"]]
 
-async def identify_multi_local(image_bytes: bytes, top_k_per_face: int = 3, threshold: float = 0.6) -> Dict[str, Any]:
+    auto_enrolled: Optional[int] = None
+    if auto_enroll_on_identify and results:
+        # Take top-1 before filtering (already sorted) and enroll if similarity meets criterion
+        best = results[0]
+        if best["similarity"] >= auto_enroll_min_similarity:
+            # Reuse the query embedding; store another copy for that user
+            await save_embedding(best["user_id"], query)
+            auto_enrolled = best["user_id"]
+    return {"ok": True, "results": results, "threshold": threshold, "auto_enrolled_user_id": auto_enrolled}
+
+
+def _group_by_user_max(scored: List[Tuple[int, float]]) -> List[Tuple[int, float]]:
+    """Aggregate multiple embeddings per user by max similarity."""
+    best: Dict[int, float] = {}
+    for uid, sim in scored:
+        if uid not in best or sim > best[uid]:
+            best[uid] = sim
+    return sorted(best.items(), key=lambda x: x[1], reverse=True)
+
+
+async def identify_local_grouped(
+    image_bytes: bytes,
+    top_k: int = 3,
+    threshold: float = 0.6,
+    filter_matches: bool = False,
+    auto_enroll_on_identify: bool = False,
+    auto_enroll_min_similarity: float = 0.85,
+) -> Dict[str, Any]:
+    embedder = FaceEmbedder()
+    query = embedder.embed_image(image_bytes)
+    if query is None:
+        return {"ok": False, "reason": "no_face_detected"}
+    items = await load_all_embeddings()
+    scored: List[Tuple[int, float]] = []
+    for it in items:
+        uid = it.get("user_id")
+        vec = it.get("embedding")
+        if uid is None or not isinstance(vec, list):
+            continue
+        sim = cosine_similarity(query, vec)
+        scored.append((uid, sim))
+    grouped = _group_by_user_max(scored)
+    top = grouped[: max(1, top_k)]
+    results = [
+        {"user_id": uid, "similarity": round(float(sim), 4), "match": bool(sim >= threshold)} for uid, sim in top
+    ]
+    if filter_matches:
+        results = [r for r in results if r["match"]]
+
+    auto_enrolled: Optional[int] = None
+    if auto_enroll_on_identify and results:
+        best = results[0]
+        if best["similarity"] >= auto_enroll_min_similarity:
+            await save_embedding(best["user_id"], query)
+            auto_enrolled = best["user_id"]
+    return {"ok": True, "results": results, "threshold": threshold, "auto_enrolled_user_id": auto_enrolled}
+
+async def identify_multi_local(
+    image_bytes: bytes,
+    top_k_per_face: int = 3,
+    threshold: float = 0.6,
+    filter_matches: bool = False,
+    min_prob: float = 0.0,
+    auto_enroll_on_identify: bool = False,
+    auto_enroll_min_similarity: float = 0.85,
+    exclusive_assignment: bool = False,
+) -> Dict[str, Any]:
     """
     Identify all faces in the image against stored embeddings.
     Returns one result block per detected face with its box, prob, and top_k matches.
+    If exclusive_assignment=True, ensures that each user_id is assigned to at most one face
+    (greedy by descending best similarity). Adds primary_user_id per face.
     """
     embedder = FaceEmbedder()
     faces = embedder.embed_all_faces(image_bytes)
+    if min_prob > 0.0:
+        faces = [f for f in faces if float(f.get("prob") or 0.0) >= float(min_prob)]
     if not faces:
         return {"ok": False, "reason": "no_face_detected", "faces": []}
     items = await load_all_embeddings()
-    all_results: List[Dict[str, Any]] = []
+    # First pass: collect matches per face without enrollment decisions
+    interim: List[Dict[str, Any]] = []
     for f in faces:
-        query = f["embedding"]
-        scored: List[Tuple[str, float]] = []
+        query_emb = f["embedding"]
+        scored: List[Tuple[int, float]] = []
         for it in items:
             uid = it.get("user_id")
             vec = it.get("embedding")
             if uid is None or not isinstance(vec, list):
                 continue
-            sim = cosine_similarity(query, vec)
+            sim = cosine_similarity(query_emb, vec)
             scored.append((uid, sim))
         scored.sort(key=lambda x: x[1], reverse=True)
         top = scored[: max(1, top_k_per_face)]
@@ -267,12 +363,191 @@ async def identify_multi_local(image_bytes: bytes, top_k_per_face: int = 3, thre
             {"user_id": uid, "similarity": round(float(sim), 4), "match": bool(sim >= threshold)}
             for uid, sim in top
         ]
-        all_results.append({
+        if filter_matches:
+            matches = [m for m in matches if m["match"]]
+        interim.append({
             "box": f.get("box"),
             "prob": f.get("prob"),
             "results": matches,
+            "query_emb": query_emb,
         })
-    return {"ok": True, "faces": all_results, "threshold": threshold}
+
+    # Exclusive assignment: ensure unique user assignment across faces.
+    assigned: set[int] = set()
+    # Order faces by highest similarity of first candidate (if any) for greedy assignment
+    order = list(range(len(interim)))
+    order.sort(key=lambda i: (interim[i]["results"][0]["similarity"] if interim[i]["results"] else -1.0), reverse=True)
+    for idx in order:
+        face_entry = interim[idx]
+        primary_user_id: Optional[int] = None
+        primary_similarity: Optional[float] = None
+        if exclusive_assignment:
+            # pick first candidate not already assigned (and matching threshold if filter_matches used)
+            for cand in face_entry["results"]:
+                uid = cand["user_id"]
+                if uid in assigned:
+                    continue
+                # If filter_matches is False we still may want to require cand['match'] for assignment clarity
+                if cand.get("match") or not filter_matches:
+                    primary_user_id = uid
+                    primary_similarity = cand["similarity"]
+                    assigned.add(uid)
+                    break
+        else:
+            # Non-exclusive: choose first matching candidate above threshold else first candidate
+            for cand in face_entry["results"]:
+                if cand.get("match"):
+                    primary_user_id = cand["user_id"]
+                    primary_similarity = cand["similarity"]
+                    break
+            if primary_user_id is None and face_entry["results"]:
+                cand = face_entry["results"][0]
+                primary_user_id = cand["user_id"]
+                primary_similarity = cand["similarity"]
+        face_entry["primary_user_id"] = primary_user_id
+        face_entry["primary_similarity"] = primary_similarity
+
+    # Second pass: apply auto-enroll decisions based on primary assignment
+    final_results: List[Dict[str, Any]] = []
+    for face_entry in interim:
+        auto_enrolled: Optional[int] = None
+        if auto_enroll_on_identify and face_entry.get("primary_user_id") is not None:
+            sim_val = face_entry.get("primary_similarity") or 0.0
+            if sim_val >= auto_enroll_min_similarity:
+                await save_embedding(face_entry["primary_user_id"], face_entry["query_emb"])
+                auto_enrolled = face_entry["primary_user_id"]
+        final_results.append({
+            "box": face_entry.get("box"),
+            "prob": face_entry.get("prob"),
+            "results": face_entry.get("results"),
+            "primary_user_id": face_entry.get("primary_user_id"),
+            "auto_enrolled_user_id": auto_enrolled,
+        })
+    return {"ok": True, "faces": final_results, "threshold": threshold, "exclusive_assignment": exclusive_assignment}
+
+
+async def identify_multi_local_grouped(
+    image_bytes: bytes,
+    top_k_per_face: int = 3,
+    threshold: float = 0.6,
+    filter_matches: bool = False,
+    min_prob: float = 0.0,
+    auto_enroll_on_identify: bool = False,
+    auto_enroll_min_similarity: float = 0.85,
+    exclusive_assignment: bool = False,
+) -> Dict[str, Any]:
+    """Like identify_multi_local but groups multiple embeddings per user (max similarity).
+    If exclusive_assignment=True, assigns each user_id to at most one face (greedy) and adds primary_user_id.
+    """
+    embedder = FaceEmbedder()
+    faces = embedder.embed_all_faces(image_bytes)
+    if min_prob > 0.0:
+        faces = [f for f in faces if float(f.get("prob") or 0.0) >= float(min_prob)]
+    if not faces:
+        return {"ok": False, "reason": "no_face_detected", "faces": []}
+    items = await load_all_embeddings()
+    # First pass: collect matches per face without enrollment decisions
+    interim: List[Dict[str, Any]] = []
+    for f in faces:
+        query_emb = f["embedding"]
+        scored: List[Tuple[int, float]] = []
+        for it in items:
+            uid = it.get("user_id")
+            vec = it.get("embedding")
+            if uid is None or not isinstance(vec, list):
+                continue
+            sim = cosine_similarity(query_emb, vec)
+            scored.append((uid, sim))
+        grouped = _group_by_user_max(scored)
+        top = grouped[: max(1, top_k_per_face)]
+        matches = [
+            {"user_id": uid, "similarity": round(float(sim), 4), "match": bool(sim >= threshold)}
+            for uid, sim in top
+        ]
+        if filter_matches:
+            matches = [m for m in matches if m["match"]]
+        interim.append({
+            "box": f.get("box"),
+            "prob": f.get("prob"),
+            "results": matches,
+            "query_emb": query_emb,
+        })
+
+    assigned: set[int] = set()
+    order = list(range(len(interim)))
+    order.sort(key=lambda i: (interim[i]["results"][0]["similarity"] if interim[i]["results"] else -1.0), reverse=True)
+    for idx in order:
+        face_entry = interim[idx]
+        primary_user_id: Optional[int] = None
+        primary_similarity: Optional[float] = None
+        if exclusive_assignment:
+            for cand in face_entry["results"]:
+                uid = cand["user_id"]
+                if uid in assigned:
+                    continue
+                if cand.get("match") or not filter_matches:
+                    primary_user_id = uid
+                    primary_similarity = cand["similarity"]
+                    assigned.add(uid)
+                    break
+        else:
+            for cand in face_entry["results"]:
+                if cand.get("match"):
+                    primary_user_id = cand["user_id"]
+                    primary_similarity = cand["similarity"]
+                    break
+            if primary_user_id is None and face_entry["results"]:
+                cand = face_entry["results"][0]
+                primary_user_id = cand["user_id"]
+                primary_similarity = cand["similarity"]
+        face_entry["primary_user_id"] = primary_user_id
+        face_entry["primary_similarity"] = primary_similarity
+
+    final_results: List[Dict[str, Any]] = []
+    for face_entry in interim:
+        auto_enrolled: Optional[int] = None
+        if auto_enroll_on_identify and face_entry.get("primary_user_id") is not None:
+            sim_val = face_entry.get("primary_similarity") or 0.0
+            if sim_val >= auto_enroll_min_similarity:
+                await save_embedding(face_entry["primary_user_id"], face_entry["query_emb"])
+                auto_enrolled = face_entry["primary_user_id"]
+        final_results.append({
+            "box": face_entry.get("box"),
+            "prob": face_entry.get("prob"),
+            "results": face_entry.get("results"),
+            "primary_user_id": face_entry.get("primary_user_id"),
+            "auto_enrolled_user_id": auto_enrolled,
+        })
+    return {"ok": True, "faces": final_results, "threshold": threshold, "exclusive_assignment": exclusive_assignment}
+
+
+async def auto_enroll_if_confident(image_bytes: bytes, min_similarity: float = 0.8, min_prob: float = 0.0) -> Dict[str, Any]:
+    """If exactly one face is detected and the best grouped match >= min_similarity, enroll it."""
+    embedder = FaceEmbedder()
+    faces = embedder.embed_all_faces(image_bytes)
+    # Apply probability filter if requested
+    if min_prob > 0.0:
+        faces = [f for f in faces if (f.get("prob") or 0.0) >= min_prob]
+    if len(faces) != 1:
+        return {"ok": False, "reason": "multiple_or_zero_faces", "count": len(faces)}
+    query = faces[0]["embedding"]
+    items = await load_all_embeddings()
+    scored: List[Tuple[int, float]] = []
+    for it in items:
+        uid = it.get("user_id")
+        vec = it.get("embedding")
+        if uid is None or not isinstance(vec, list):
+            continue
+        sim = cosine_similarity(query, vec)
+        scored.append((uid, sim))
+    grouped = _group_by_user_max(scored)
+    if not grouped:
+        return {"ok": False, "reason": "no_reference_embeddings"}
+    best_user, best_sim = grouped[0]
+    if best_sim >= min_similarity:
+        store = await save_embedding(best_user, query)
+        return {"ok": True, "enrolled_user_id": best_user, "similarity": round(float(best_sim), 4), "storage": store}
+    return {"ok": False, "reason": "low_similarity", "similarity": round(float(best_sim), 4)}
 
 async def detect_faces_local(image_bytes: bytes) -> Dict[str, Any]:
     """Return bounding boxes (x1,y1,x2,y2) and probabilities using MTCNN only."""
