@@ -9,9 +9,9 @@ router = APIRouter()
 @router.post("/getUploadUrl")
 async def get_upload_url(file_name: str):
     try:
-        account_name = os.getenv("AZURE_STORAGE_ACCOUNT")
-        account_key = os.getenv("AZURE_STORAGE_KEY")
-        container_name = os.getenv("CONTAINER_NAME", "event-media")
+        account_name = 'dumpymediauploads'                                                                              #os.getenv("AZURE_STORAGE_ACCOUNT")
+        account_key = 'pRd2nUaAmxbfssWVLbTBp9POFZ8lwE5qfsAgilph+jRuJrXK0fLBgBIMx38toHy2/XbG3c6V3pLH+ASts87K5g=='        #os.getenv("AZURE_STORAGE_KEY")
+        container_name = 'event-media'                                                                                  #os.getenv("CONTAINER_NAME", "event-media")
 
         if not account_name or not account_key:
             raise HTTPException(status_code=500, detail="Azure credentials not configured")
