@@ -9,10 +9,16 @@ class SlideshowRequest(BaseModel):
 
 
 class SlideshowResponse(BaseModel):
-    status: str
+    status: str # "processing", "completed", "failed"
     message: str
-    slideshow_url: Optional[str] = None  # URL to the generated slideshow video
-    job_id: Optional[str] = None  # For async processing
+    job_id: str  # Job ID for tracking
+
+
+class SlideshowStatusResponse(BaseModel):
+    status: str  # "processing", "completed", "failed"
+    message: str  # Current stage message
+    slideshow_url: Optional[str] = None  # Only present when completed
+    error: Optional[str] = None  # Only present when failed
 
 class CaptionRequest(BaseModel):
     image_url: str

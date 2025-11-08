@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     SUPABASE_KEY: Optional[str] = None  # legacy / anon key (read-mostly)
     SUPABASE_API_KEY: Optional[str] = None  # alternative naming
     REPLICATE_API_TOKEN: Optional[str] = None
+    AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
+    AZURE_STORAGE_CONTAINER: str = "slideshows"
 
     class Config:
         env_file = ".env"
