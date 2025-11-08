@@ -90,10 +90,8 @@ async def save_slideshow_to_database(
         
         result = supabase.table("slideshows").insert({
             "event_id": event_id,
-            "user_id": user_id,
             "slideshow_url": slideshow_url,
             "theme_prompt": theme_prompt,
-            "music_choice": music_choice,
             "duration_seconds": duration_seconds,
             "status": "completed",
             "created_at": datetime.now().isoformat()
