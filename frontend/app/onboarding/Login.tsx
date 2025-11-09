@@ -1,12 +1,22 @@
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from "react-native";
 import { useState } from "react";
-import { useRouter } from "expo-router";
+import { router, useRouter } from "expo-router";
 import { useFonts, Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold } from "@expo-google-fonts/poppins";
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Login() {
-  const router = useRouter();
+  const { signIn, loading } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+
+  const handleLogin = async () => {
+    const { error } = await signIn(username, password);
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      router.replace('/(tabs)/feed');
+    }
+  };
 
   const [fontsLoaded] = useFonts({
     Poppins_400Regular,
@@ -48,6 +58,7 @@ export default function Login() {
       <TouchableOpacity 
         style={[styles.button, !isFormComplete && styles.buttonDisabled]}
         disabled={!isFormComplete}
+        onPress={handleLogin}
       >
         <Text style={styles.buttonText}>log in</Text>
       </TouchableOpacity>
