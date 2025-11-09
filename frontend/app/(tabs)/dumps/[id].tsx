@@ -1,3 +1,4 @@
+import InviteModal from '@/components/InviteModal';
 import { getSupabase } from '@/lib/supabaseClient';
 import { Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold, useFonts } from '@expo-google-fonts/poppins';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,6 +31,7 @@ export default function DumpWorkspace() {
   const [media, setMedia] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Poppins_400Regular,
@@ -75,8 +77,13 @@ export default function DumpWorkspace() {
   };
 
   const handleInvite = () => {
-    // TODO: Implement invite functionality
-    console.log('Invite people');
+    setInviteModalVisible(true);
+  };
+
+  const handleInviteUsers = async (userIds: number[]) => {
+    // TODO: Implement backend call to add users to event
+    console.log('Adding users to dump:', userIds, 'for event:', id);
+    // Example: await supabase.from('event_participants').insert(userIds.map(userId => ({ event_id: id, user_id: userId })))
   };
 
   const handleFinishDump = async () => {
@@ -167,6 +174,14 @@ export default function DumpWorkspace() {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      {/* Invite Modal */}
+      <InviteModal
+        visible={inviteModalVisible}
+        onClose={() => setInviteModalVisible(false)}
+        eventId={id || ''}
+        onInvite={handleInviteUsers}
+      />
     </View>
   );
 }
