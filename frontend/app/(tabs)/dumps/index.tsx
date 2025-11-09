@@ -1,9 +1,9 @@
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { useAuth } from '@/contexts/AuthContext';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface Dump {
     event_id: number;
@@ -62,7 +62,7 @@ export default function MyDumps() {
                 renderItem={({ item }) => (
                     <TouchableOpacity
                         style={styles.dumpCard}
-                        onPress={() => router.push(`/dump/${item.event_id}` as any)}
+                        onPress={() => router.push(`/dumps/${item.event_id}` as any)}
                     >
                         <Text style={styles.dumpTitle}>{item.event_name}</Text>
                         <Text style={styles.dumpDesc}>{item.event_description}</Text>

@@ -1,13 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, usePathname, useRouter } from 'expo-router';
-import { TouchableOpacity, View } from 'react-native';
+import { View } from 'react-native';
 
 export default function TabLayout() {
   const router = useRouter();
   const pathname = usePathname();
 
   // check if user is on dump page
-  const isInDump = pathname.startsWith('/dump/') && pathname.split('/').length === 3;
+  const isInDump = pathname.startsWith('/dumps/') && pathname.split('/').length === 3;
 
   return (
     <Tabs
@@ -49,33 +49,41 @@ export default function TabLayout() {
         name="upload"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TouchableOpacity
-              onPress={() => {
-                if (isInDump) {
-                  router.push('/upload');
-                }
+            <View
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 32,
+                backgroundColor: isInDump ? '#4A9B72' : '#C7D9CF',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 30,
               }}
-              activeOpacity={isInDump ? 0.7 : 1}
             >
-              <View
-                style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: isInDump ? '#4A9B72' : '#C7D9CF',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 30,
-                }}
-              >
-                <Ionicons
-                  name="add"
-                  size={36}
-                  color="white"
-                />
-              </View>
-            </TouchableOpacity>
+              <Ionicons
+                name="add"
+                size={36}
+                color="white"
+              />
+            </View>
           ),
+        }}
+        listeners={{
+          tabPress: (e) => {
+            e.preventDefault();
+            if (isInDump) {
+              // Extract event ID from pathname (e.g., /dumps/123 -> 123)
+              const eventId = pathname.split('/').pop();
+              console.log('[Tab Layout] Navigating to upload with eventId:', eventId, 'from pathname:', pathname);
+              router.push({
+                pathname: '/upload',
+                params: { 
+                  returnTo: pathname,
+                  eventId: eventId 
+                }
+              });
+            }
+          },
         }}
       />
       {/* dumps tab */}
@@ -87,6 +95,13 @@ export default function TabLayout() {
           ),
           tabBarActiveTintColor: '#6D9C91',
           tabBarInactiveTintColor: '#777',
+        }}
+      />
+      {/* dumps detail - hidden from tab bar */}
+      <Tabs.Screen
+        name="dumps/[id]"
+        options={{
+          href: null, // This hides it from the tab bar
         }}
       />
       {/* profile tab */}
