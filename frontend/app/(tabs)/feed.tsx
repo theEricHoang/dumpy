@@ -4,8 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEvent } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'expo-router';
 
 type Slideshow = {
   id: string;
@@ -125,6 +127,9 @@ function DumpVideo({
 }
 
 export default function Feed() {
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+  
   const [fontsLoaded] = useFonts({
     Poppins_400Regular,
     Poppins_600SemiBold,
@@ -148,6 +153,13 @@ export default function Feed() {
   const [page, setPage] = useState(0);
   const pageSize = 10;
   const hasInitiallyFetched = useRef(false);
+
+  // Check authentication
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/onboarding/Login');
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     // Only fetch on initial mount
@@ -237,10 +249,10 @@ export default function Feed() {
     </View>
   );
 
-  if (loading && slideshows.length === 0) {
+  if (authLoading || (loading && slideshows.length === 0)) {
     return (
       <View style={[styles.contentContainer, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
-        <Ionicons name="hourglass" size={48} color="white" />
+        <ActivityIndicator size="large" color="#4A9B72" />
       </View>
     );
   }

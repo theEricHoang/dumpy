@@ -1,8 +1,9 @@
-import { View, Text, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Dump {
     event_id: number;
@@ -14,6 +15,14 @@ interface Dump {
 export default function MyDumps() {
     const [dumps, setDumps] = useState<Dump[]>([]);
     const router = useRouter();
+    const { user, loading: authLoading } = useAuth();
+
+    // Check authentication
+    useEffect(() => {
+        if (!authLoading && !user) {
+            router.replace('/onboarding/Login');
+        }
+    }, [user, authLoading]);
 
     useEffect(() => {
         const fetchDumps = async () => {
@@ -27,6 +36,14 @@ export default function MyDumps() {
         };
         fetchDumps();
     }, []);
+
+    if (authLoading) {
+        return (
+            <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+                <ActivityIndicator size="large" color="#4A9B72" />
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.container}>
