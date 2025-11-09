@@ -2,8 +2,10 @@ import { Redirect } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Index() {
+  const { user, loading: authLoading } = useAuth();
   // null = unknown/loading, boolean once loaded
   const [isOnboarded, setIsOnboarded] = useState<null | boolean>(null);
 
@@ -22,7 +24,8 @@ export default function Index() {
     return () => { mounted = false; };
   }, []);
 
-  if (isOnboarded === null) {
+  // Wait for both auth and onboarding checks
+  if (authLoading || isOnboarded === null) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator />
@@ -30,9 +33,16 @@ export default function Index() {
     );
   }
 
-  return isOnboarded ? (
-    <Redirect href="/(tabs)/feed" />
-  ) : (
-    <Redirect href="/onboarding" />
-  );
+  // If not onboarded, show onboarding
+  if (!isOnboarded) {
+    return <Redirect href="/onboarding" />;
+  }
+
+  // If onboarded but not authenticated, show login
+  if (!user) {
+    return <Redirect href="/onboarding/Login" />;
+  }
+
+  // If onboarded and authenticated, show app
+  return <Redirect href="/(tabs)/feed" />;
 }

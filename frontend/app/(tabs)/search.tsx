@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabaseClient';
 import { useFonts, Poppins_400Regular, Poppins_600SemiBold } from '@expo-google-fonts/poppins';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface User {
   user_id: number;
@@ -13,6 +14,7 @@ interface User {
 
 export default function Search() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,6 +22,13 @@ export default function Search() {
     Poppins_400Regular,
     Poppins_600SemiBold,
   });
+
+  // Check authentication
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/onboarding/Login');
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     if (query.trim().length === 0) {
@@ -44,7 +53,13 @@ export default function Search() {
     return () => clearTimeout(debounceTimeout);
   }, [query]);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded || authLoading) {
+    return (
+      <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#4A9B72" />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
