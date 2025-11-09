@@ -367,6 +367,13 @@ async def identify_local_grouped(file: UploadFile = File(...), top_k: int = 3, t
 async def identify_multi_local_grouped(file: UploadFile = File(...), top_k_per_face: int = 3, threshold: float = 0.6, filter_matches: bool = False, min_prob: float = 0.0, auto_enroll_on_identify: bool = False, auto_enroll_min_similarity: float = 0.85, exclusive_assignment: bool = False):
     """Multi-face identification with per-user grouped similarity aggregation."""
     content = await file.read()
+    
+    # Validate image content
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file uploaded")
+    
+    print(f"[DEBUG] Received file: {file.filename}, size: {len(content)} bytes, content_type: {file.content_type}")
+    
     try:
         result = await emb.identify_multi_local_grouped(
             image_bytes=content,
@@ -380,6 +387,9 @@ async def identify_multi_local_grouped(file: UploadFile = File(...), top_k_per_f
         )
         return result
     except Exception as e:
+        import traceback
+        print(f"[ERROR] identify_multi_local_grouped failed:")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/face/auto_enroll")
