@@ -1,55 +1,63 @@
-import { View, Text, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback } from 'react';
+import { Alert, View } from 'react-native';
 
 export default function UploadScreen() {
     const router = useRouter();
-    const { user, loading: authLoading } = useAuth();
+    const params = useLocalSearchParams<{ returnTo?: string }>();
 
-    // Check authentication
-    useEffect(() => {
-        if (!authLoading && !user) {
-            router.replace('/onboarding/Login');
+    useFocusEffect(
+        useCallback(() => {
+            pickImage();
+        }, [])
+    );
+
+    const navigateBack = () => {
+        if (params.returnTo) {
+            router.push(params.returnTo as any);
+        } else {
+            router.push('/dumps');
+        }
+    };
+
+    const pickImage = async () => {
+        // Request permissions
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        
+        if (status !== 'granted') {
+            Alert.alert(
+                'Permission Required',
+                'Please grant photo library access to upload photos',
+                [{ text: 'OK', onPress: navigateBack }]
+            );
             return;
         }
 
-        if (user) {
-            // Show alert when accessed directly
-            Alert.alert(
-                'Upload Photo',
-                'Navigate to a dump to upload photos',
-                [{ text: 'OK', onPress: () => router.replace('/(tabs)/dumps') }]
-            );
+        // Launch image picker
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsMultipleSelection: false,
+            quality: 0.8,
+            exif: true,
+        });
+
+        if (result.canceled) {
+            // User cancelled, go back
+            navigateBack();
+            return;
         }
-    }, [user, authLoading]);
 
-    if (authLoading) {
-        return (
-            <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-                <ActivityIndicator size="large" color="#4A9B72" />
-            </SafeAreaView>
-        );
-    }
+        // Get the selected image
+        const selectedImage = result.assets[0];
+        
+        // TODO: Upload image to backend/supabase
+        console.log('Selected image:', selectedImage.uri);
+        
+        // Go back to the page we came from
+        navigateBack();
+    };
 
-    return (
-        <SafeAreaView style={styles.container}>
-            <Text style={styles.text}>Upload</Text>
-        </SafeAreaView>
-    );
+    return <View />;
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#DADCE0',
-    },
-    text: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        fontFamily: 'Poppins',
-    },
-});
