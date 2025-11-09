@@ -1,10 +1,13 @@
 import InviteModal from '@/components/InviteModal';
+import SlideshowVideoModal from '@/components/SlideshowVideoModal';
+import ThemePromptModal from '@/components/ThemePromptModal';
+import { apiClient } from '@/lib/apiClient';
 import { getSupabase } from '@/lib/supabaseClient';
 import { Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold, useFonts } from '@expo-google-fonts/poppins';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type Event = {
@@ -33,6 +36,14 @@ export default function DumpWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [themePromptModalVisible, setThemePromptModalVisible] = useState(false);
+  const [videoModalVisible, setVideoModalVisible] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<'processing' | 'completed' | 'failed' | null>(null);
+  const [jobMessage, setJobMessage] = useState<string>('');
+  const [slideshowUrl, setSlideshowUrl] = useState<string | null>(null);
+  const pollingInterval = useRef<number | null>(null);
 
   const [fontsLoaded] = useFonts({
     Poppins_400Regular,
@@ -119,10 +130,78 @@ export default function DumpWorkspace() {
     }
   };
 
-  const handleFinishDump = async () => {
-    // TODO: Call backend to generate AI slideshow
-    console.log('Finish dump and generate slideshow');
+  const handleFinishDump = () => {
+    if (media.length === 0) return;
+    if (jobStatus === 'completed' && slideshowUrl) {
+      setVideoModalVisible(true);
+      return;
+    }
+    setThemePromptModalVisible(true);
   };
+
+  const handleGenerateSlideshow = async (themePrompt: string) => {
+    try {
+      setIsGenerating(true);
+      
+      const response = await apiClient.generateSlideshow({
+        event_id: parseInt(id!),
+        theme_prompt: themePrompt,
+      });
+
+      setJobId(response.job_id);
+      setJobStatus(response.status as 'processing' | 'completed' | 'failed');
+      setJobMessage(response.message);
+      setThemePromptModalVisible(false);
+
+      // Start polling for status
+      startPolling(response.job_id);
+    } catch (error) {
+      console.error('Failed to generate slideshow:', error);
+      alert('Failed to start slideshow generation. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const startPolling = (jobId: string) => {
+    // Clear any existing polling
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+    }
+
+    // Poll every 5 seconds
+    pollingInterval.current = setInterval(async () => {
+      try {
+        const status = await apiClient.getSlideshowStatus(jobId);
+        setJobStatus(status.status as 'processing' | 'completed' | 'failed');
+        setJobMessage(status.message);
+
+        if (status.status === 'completed' && status.slideshow_url) {
+          setSlideshowUrl(status.slideshow_url);
+          stopPolling();
+        } else if (status.status === 'failed') {
+          alert(`Slideshow generation failed: ${status.error || 'Unknown error'}`);
+          stopPolling();
+        }
+      } catch (error) {
+        console.error('Failed to fetch slideshow status:', error);
+      }
+    }, 5000) as unknown as number;
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+  }, []);
 
   const renderMediaItem = ({ item }: { item: Media }) => (
     <View style={styles.mediaItem}>
@@ -181,12 +260,30 @@ export default function DumpWorkspace() {
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={[styles.finishButton, media.length === 0 && styles.disabledButton]} 
+            style={[
+              styles.finishButton, 
+              (media.length === 0 || (jobStatus === 'processing')) && styles.disabledButton,
+              jobStatus === 'completed' && styles.completedButton
+            ]} 
             onPress={handleFinishDump}
-            disabled={media.length === 0}
+            disabled={media.length === 0 || jobStatus === 'processing'}
           >
-            <Ionicons name="checkmark-circle" size={20} color="white" />
-            <Text style={styles.finishButtonText}>Finish</Text>
+            {jobStatus === 'processing' ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Ionicons 
+                name={jobStatus === 'completed' ? 'videocam' : 'checkmark-circle'} 
+                size={20} 
+                color="white" 
+              />
+            )}
+            <Text style={styles.finishButtonText}>
+              {jobStatus === 'processing' 
+                ? jobMessage 
+                : jobStatus === 'completed' 
+                ? 'View Dumpy' 
+                : 'Finish'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -215,6 +312,23 @@ export default function DumpWorkspace() {
         eventId={id || ''}
         onInvite={handleInviteUsers}
       />
+
+      {/* Theme Prompt Modal */}
+      <ThemePromptModal
+        visible={themePromptModalVisible}
+        onClose={() => setThemePromptModalVisible(false)}
+        onGenerate={handleGenerateSlideshow}
+        isGenerating={isGenerating}
+      />
+
+      {/* Slideshow Video Modal */}
+      {slideshowUrl && (
+        <SlideshowVideoModal
+          visible={videoModalVisible}
+          onClose={() => setVideoModalVisible(false)}
+          videoUrl={slideshowUrl}
+        />
+      )}
     </View>
   );
 }
@@ -290,6 +404,9 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#C7D9CF',
+  },
+  completedButton: {
+    backgroundColor: '#4A9B72',
   },
   finishButtonText: {
     fontSize: 16,

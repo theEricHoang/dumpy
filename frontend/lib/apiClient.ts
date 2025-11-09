@@ -31,6 +31,25 @@ export interface IdentifyMultiResponse {
   total_faces: number;
 }
 
+export interface SlideshowRequest {
+  event_id: number;
+  theme_prompt: string;
+  music_choice?: string;
+}
+
+export interface SlideshowResponse {
+  status: string; // "processing", "completed", "failed"
+  message: string;
+  job_id: string;
+}
+
+export interface SlideshowStatusResponse {
+  status: string; // "processing", "completed", "failed"
+  message: string;
+  slideshow_url?: string;
+  error?: string;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -187,6 +206,28 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  /**
+   * Generate a slideshow for an event
+   */
+  async generateSlideshow(request: SlideshowRequest): Promise<SlideshowResponse> {
+    return this.fetch<SlideshowResponse>('/api/slideshow/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Get the status of a slideshow generation job
+   */
+  async getSlideshowStatus(jobId: string): Promise<SlideshowStatusResponse> {
+    return this.fetch<SlideshowStatusResponse>(`/api/slideshow/status/${jobId}`, {
+      method: 'GET',
+    });
   }
 }
 
