@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { View, Text, TouchableOpacity, ActivityIndicator, Image, Alert, Platform } from 'react-native'
+import { View, Text, TouchableOpacity, ActivityIndicator, Image, Alert, Platform, Linking } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as ImageManipulator from 'expo-image-manipulator'
 import Constants from 'expo-constants'
@@ -16,6 +16,7 @@ export default function Selfie() {
   const [photoUri, setPhotoUri] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cameraReady, setCameraReady] = useState(false)
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -27,6 +28,30 @@ export default function Selfie() {
     if (!camRef.current) return
     setError(null)
     try {
+      // Ensure permission is granted
+      if (!permission?.granted) {
+        const { granted, canAskAgain } = await requestPermission()
+        if (!granted) {
+          if (!canAskAgain) {
+            Alert.alert(
+              'Camera permission required',
+              'Please enable Camera in Settings for Expo Go to take a selfie.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings?.() }
+              ]
+            )
+          }
+          return
+        }
+      }
+
+      if (!cameraReady) {
+        // Avoid calling before the camera is ready; helps on some devices
+        setError('Camera is starting… please try again in a moment.')
+        return
+      }
+
       setCapturing(true)
       // capture
       const photo = await camRef.current.takePictureAsync({ quality: 0.9, skipProcessing: true })
@@ -174,17 +199,27 @@ export default function Selfie() {
         </View>
       ) : (
         <View style={{ flex: 1 }}>
+          {Platform.OS === 'web' && (
+            <View style={{ padding: 12, backgroundColor: '#111' }}>
+              <Text style={{ color: '#bbb', textAlign: 'center' }}>
+                On the web, camera requires https or localhost. If this doesn’t show your camera, try native Expo Go.
+              </Text>
+            </View>
+          )}
           <CameraView
             ref={(ref: CameraView | null) => {
               camRef.current = ref
             }}
             facing="front"
             style={{ flex: 1 }}
+            onCameraReady={() => setCameraReady(true)}
           />
           {error && <Text style={{ color: '#ffb4ab', textAlign: 'center', padding: 8 }}>{error}</Text>}
           <View style={{ padding: 16, alignItems: 'center' }}>
             <TouchableOpacity disabled={capturing} onPress={takePhoto} style={{ backgroundColor: '#fff', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 999 }}>
-              {capturing ? <ActivityIndicator /> : <Text style={{ fontWeight: '600' }}>Take selfie</Text>}
+              {capturing ? <ActivityIndicator /> : (
+                <Text style={{ fontWeight: '600' }}>{cameraReady ? 'Take selfie' : 'Starting camera…'}</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
