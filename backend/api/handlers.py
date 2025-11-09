@@ -20,7 +20,7 @@ from services.caption_service import (
     generate_event_captions_batch
 )
 from services.caption_service import generate_caption
-from services.azure_blob_service import upload_profile_image
+from services.azure_service import upload_profile_image
 from services.music_service import generate_music
 # from services.slideshow_service import create_slideshow
 
@@ -138,6 +138,12 @@ def _sanitize_username(base: str) -> str:
     import re
     cleaned = re.sub(r"[^a-zA-Z0-9._-]", "", base)
     return cleaned or "user"
+
+
+class ProfilePicUpdate(BaseModel):
+    email: str
+    url: str
+    username: Optional[str] = None
 
 
 @router.post("/users/profile-picture")
