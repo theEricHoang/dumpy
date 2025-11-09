@@ -23,6 +23,8 @@ from services.caption_service import generate_caption
 from services.azure_service import upload_profile_image
 from services.music_service import generate_music
 # from services.slideshow_service import create_slideshow
+from services.azure_service import get_blob_service, ensure_container
+from azure.storage.blob import ContentSettings  # type: ignore
 
 router = APIRouter()
 supabase: Client = create_client(
@@ -40,27 +42,37 @@ from datetime import datetime, timedelta
 
 @router.post("/getUploadUrl")
 async def get_upload_url(file_name: str):
-    """
-    Generate a temporary SAS URL for uploading media directly to Azure Blob Storage.
+    """Generate a temporary SAS URL for uploading media directly to Azure Blob Storage.
+
+    Returns both the upload_url (PUT with SAS) and blob_url (without SAS) plus expiry for diagnostics.
+    Grants write, create, and read so the client can preflight with HEAD if desired.
     """
     try:
         account_name = os.getenv("AZURE_STORAGE_ACCOUNT")
-        account_key = os.getenv("AZURE_STORAGE_KEY")
+        account_key = os.getenv("AZURE_STORAGE_KEY") or os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
         container_name = os.getenv("CONTAINER_NAME", "event-media")
 
+        if not account_name or not account_key:
+            raise HTTPException(status_code=500, detail="Azure storage credentials missing (AZURE_STORAGE_ACCOUNT / AZURE_STORAGE_KEY)")
+
+        expiry = datetime.utcnow() + timedelta(minutes=30)
         sas_token = generate_blob_sas(
             account_name=account_name,
             container_name=container_name,
             blob_name=file_name,
             account_key=account_key,
-            permission=BlobSasPermissions(write=True),
-            expiry=datetime.utcnow() + timedelta(hours=1)
+            permission=BlobSasPermissions(read=True, write=True, create=True),
+            expiry=expiry,
         )
 
-        upload_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{file_name}?{sas_token}"
+        blob_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{file_name}"
+        upload_url = f"{blob_url}?{sas_token}"
 
-        return {"upload_url": upload_url}
-
+        return {
+            "upload_url": upload_url,
+            "blob_url": blob_url,
+            "expires_utc": expiry.isoformat() + "Z"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -223,6 +235,73 @@ async def set_profile_picture(body: ProfilePicUpdate):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"set_profile_picture_failed: {str(e)}")
+
+
+@router.post("/upload/media")
+async def upload_media(file: UploadFile = File(...), blob_name: Optional[str] = None):
+    """Proxy upload: Accepts a file and uploads it to the configured Azure Blob container.
+
+    This avoids client-side PUT issues and leverages server credentials. Returns a URL (with SAS if available).
+    """
+    try:
+        content = await file.read()
+        content_type = file.content_type or "image/jpeg"
+
+        container = (getattr(settings, "CONTAINER_NAME", None) or getattr(settings, "AZURE_STORAGE_CONTAINER", None) or "event-media")
+        ensure_container(container)
+
+        svc = get_blob_service()
+        container_client = svc.get_container_client(container)
+
+        # Generate name if not provided
+        if not blob_name:
+            ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+            import uuid as _uuid
+            ext = ".jpg"
+            if file.filename and "." in file.filename:
+                ext = "." + file.filename.rsplit(".", 1)[-1]
+            blob_name = f"{ts}-{_uuid.uuid4().hex}{ext}"
+
+        blob_client = container_client.get_blob_client(blob_name)
+        blob_client.upload_blob(
+            content,
+            overwrite=False,
+            content_settings=ContentSettings(content_type=content_type),
+        )
+
+        base_url = blob_client.url
+
+        # Try to append SAS for read if key available
+        account_key = settings.AZURE_STORAGE_ACCOUNT_KEY
+        account_name = svc.account_name
+
+        if not account_key and settings.AZURE_STORAGE_CONNECTION_STRING:
+            try:
+                parts = dict(
+                    p.split("=", 1) for p in settings.AZURE_STORAGE_CONNECTION_STRING.split(";") if "=" in p
+                )
+                account_key = parts.get("AccountKey")
+            except Exception:
+                account_key = None
+
+        if account_key:
+            try:
+                from azure.storage.blob import generate_blob_sas, BlobSasPermissions  # type: ignore
+                sas = generate_blob_sas(
+                    account_name=account_name,
+                    container_name=container,
+                    blob_name=blob_name,
+                    account_key=account_key,
+                    permission=BlobSasPermissions(read=True),
+                    expiry=datetime.utcnow() + timedelta(days=7),
+                )
+                return {"url": f"{base_url}?{sas}", "blob_name": blob_name}
+            except Exception:
+                return {"url": base_url, "blob_name": blob_name}
+        else:
+            return {"url": base_url, "blob_name": blob_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"upload_media_failed: {str(e)}")
 
 @router.get("/event/{event_id}/media-mapping")
 async def get_event_media_mapping_endpoint(event_id: int):

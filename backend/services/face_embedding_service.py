@@ -32,6 +32,8 @@ _np = None
 _Image = None
 _MTCNN = None
 _InceptionResnetV1 = None
+_HEIF_AVAILABLE = False
+FACE_DEBUG = os.getenv("FACE_DEBUG", "").lower() in ("1", "true", "yes")
 
 
 def _load_deps():
@@ -52,7 +54,81 @@ def _load_deps():
     _Image = _Image_mod
     _MTCNN = _MTCNN_mod
     _InceptionResnetV1 = _IR_mod
+    # Register HEIC/HEIF opener if pillow-heif is available, so PIL.Image.open works for HEIC
+    global _HEIF_AVAILABLE
+    try:
+        import pillow_heif  # type: ignore
+        pillow_heif.register_heif_opener()
+        _HEIF_AVAILABLE = True
+    except Exception:
+        _HEIF_AVAILABLE = False
     _lazy_deps_loaded = True
+
+
+def _open_image_bytes_rgb(image_bytes: bytes):
+    """Open image bytes into a PIL RGB image with HEIC/HEIF fallback if available."""
+    _load_deps()
+    # Quick sniff: HEIF files often contain 'ftypheic'/'ftypheif'/'ftypheix' in header
+    header = image_bytes[:64]
+    looks_heif = any(sig in header for sig in (b"ftypheic", b"ftypheif", b"ftypheix", b"ftypmif1", b"ftypmsf1"))
+    if _HEIF_AVAILABLE and looks_heif:
+        try:
+            import pillow_heif  # type: ignore
+            heif_file = pillow_heif.read_heif(image_bytes)
+            from PIL import Image as _PILImage  # type: ignore
+            img = _PILImage.frombytes(
+                heif_file.mode,
+                heif_file.size,
+                heif_file.data,
+                "raw",
+                heif_file.mode,
+                heif_file.stride,
+            )
+            try:
+                # Apply EXIF orientation if present
+                from PIL import ImageOps as _ImageOps  # type: ignore
+                img = _ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            return img.convert("RGB")
+        except Exception as inner:
+            # Fall back to PIL open if HEIF decode unexpectedly fails
+            print(f"[WARN] HEIF sniff matched but decode failed: {inner}")
+    try:
+        img = _Image.open(io.BytesIO(image_bytes))
+        try:
+            from PIL import ImageOps as _ImageOps  # type: ignore
+            img = _ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+        return img.convert("RGB")
+    except Exception as e:
+        # Try pillow-heif manual decode if registered opener didn't handle it
+        if _HEIF_AVAILABLE:
+            try:
+                import pillow_heif  # type: ignore
+                heif_file = pillow_heif.read_heif(image_bytes)
+                from PIL import Image as _PILImage  # type: ignore
+                img = _PILImage.frombytes(
+                    heif_file.mode,
+                    heif_file.size,
+                    heif_file.data,
+                    "raw",
+                    heif_file.mode,
+                    heif_file.stride,
+                )
+                try:
+                    from PIL import ImageOps as _ImageOps  # type: ignore
+                    img = _ImageOps.exif_transpose(img)
+                except Exception:
+                    pass
+                return img.convert("RGB")
+            except Exception as inner:
+                raise RuntimeError(
+                    f"Unsupported or corrupted image format (HEIF decode failed: {inner})"
+                ) from e
+        # No HEIF available, surface a clear error
+        raise RuntimeError(f"Unsupported or corrupted image format: {str(e)}") from e
 
 
 class FaceEmbedder:
@@ -66,8 +142,36 @@ class FaceEmbedder:
 
     def embed_image(self, image_bytes: bytes) -> Optional[List[float]]:
         """Return a 512-D embedding for the largest detected face, or None if no face."""
-        img = _Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = _open_image_bytes_rgb(image_bytes)
         boxes, probs = self.mtcnn.detect(img)
+        if (boxes is None or len(boxes) == 0) and max(img.size) > 2000:
+            # Downscale very large images to improve MTCNN detection reliability
+            scale = 1600.0 / float(max(img.size))
+            new_wh = (max(1, int(img.size[0] * scale)), max(1, int(img.size[1] * scale)))
+            if FACE_DEBUG:
+                print(f"[FACE_DEBUG] embed_image: initial detect failed on {img.size}, retrying at {new_wh}")
+            img_small = img.resize(new_wh)
+            boxes, probs = self.mtcnn.detect(img_small)
+            if boxes is not None and len(boxes) > 0:
+                img = img_small
+        if (boxes is None or len(boxes) == 0):
+            # Contrast boost fallback for low-light / low-contrast images
+            try:
+                from PIL import ImageEnhance as _ImageEnhance  # type: ignore
+                enhancer = _ImageEnhance.Contrast(img)
+                img_boost = enhancer.enhance(1.6)
+                boxes, probs = self.mtcnn.detect(img_boost)
+                if boxes is not None and len(boxes) > 0:
+                    img = img_boost
+                    if FACE_DEBUG:
+                        print("[FACE_DEBUG] embed_image: contrast boost succeeded")
+            except Exception:
+                pass
+        if FACE_DEBUG:
+            try:
+                print(f"[FACE_DEBUG] embed_image: boxes={0 if boxes is None else len(boxes)}, probs={[] if probs is None else [round(float(p),4) for p in probs]}")
+            except Exception:
+                pass
         if boxes is None or len(boxes) == 0:
             return None
         # Pick largest box
@@ -91,8 +195,35 @@ class FaceEmbedder:
         Return embeddings for all detected faces with their boxes and probs.
         Output: [{"box": [x1,y1,x2,y2], "prob": float, "embedding": [512 floats]}]
         """
-        img = _Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = _open_image_bytes_rgb(image_bytes)
         boxes, probs = self.mtcnn.detect(img)
+        if (boxes is None or len(boxes) == 0) and max(img.size) > 2000:
+            scale = 1600.0 / float(max(img.size))
+            new_wh = (max(1, int(img.size[0] * scale)), max(1, int(img.size[1] * scale)))
+            if FACE_DEBUG:
+                print(f"[FACE_DEBUG] embed_all_faces: initial detect failed on {img.size}, retrying at {new_wh}")
+            img_small = img.resize(new_wh)
+            boxes, probs = self.mtcnn.detect(img_small)
+            if boxes is not None and len(boxes) > 0:
+                img = img_small
+        if (boxes is None or len(boxes) == 0):
+            # Contrast boost fallback
+            try:
+                from PIL import ImageEnhance as _ImageEnhance  # type: ignore
+                enhancer = _ImageEnhance.Contrast(img)
+                img_boost = enhancer.enhance(1.6)
+                boxes, probs = self.mtcnn.detect(img_boost)
+                if boxes is not None and len(boxes) > 0:
+                    img = img_boost
+                    if FACE_DEBUG:
+                        print("[FACE_DEBUG] embed_all_faces: contrast boost succeeded")
+            except Exception:
+                pass
+        if FACE_DEBUG:
+            try:
+                print(f"[FACE_DEBUG] embed_all_faces: boxes={0 if boxes is None else len(boxes)}, probs={[] if probs is None else [round(float(p),4) for p in probs]}")
+            except Exception:
+                pass
         if boxes is None or len(boxes) == 0:
             return []
         # Extract aligned faces using the same detected boxes to keep order consistent
@@ -552,8 +683,34 @@ async def auto_enroll_if_confident(image_bytes: bytes, min_similarity: float = 0
 async def detect_faces_local(image_bytes: bytes) -> Dict[str, Any]:
     """Return bounding boxes (x1,y1,x2,y2) and probabilities using MTCNN only."""
     embedder = FaceEmbedder()
-    img = _Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = _open_image_bytes_rgb(image_bytes)
     boxes, probs = embedder.mtcnn.detect(img)
+    if (boxes is None or len(boxes) == 0) and max(img.size) > 2000:
+        scale = 1600.0 / float(max(img.size))
+        new_wh = (max(1, int(img.size[0] * scale)), max(1, int(img.size[1] * scale)))
+        if FACE_DEBUG:
+            print(f"[FACE_DEBUG] detect_faces_local: initial detect failed on {img.size}, retrying at {new_wh}")
+        img_small = img.resize(new_wh)
+        boxes, probs = embedder.mtcnn.detect(img_small)
+        if boxes is not None and len(boxes) > 0:
+            img = img_small
+    if (boxes is None or len(boxes) == 0):
+        try:
+            from PIL import ImageEnhance as _ImageEnhance  # type: ignore
+            enhancer = _ImageEnhance.Contrast(img)
+            img_boost = enhancer.enhance(1.6)
+            boxes, probs = embedder.mtcnn.detect(img_boost)
+            if boxes is not None and len(boxes) > 0:
+                img = img_boost
+                if FACE_DEBUG:
+                    print("[FACE_DEBUG] detect_faces_local: contrast boost succeeded")
+        except Exception:
+            pass
+    if FACE_DEBUG:
+        try:
+            print(f"[FACE_DEBUG] detect_faces_local: boxes={0 if boxes is None else len(boxes)}, probs={[] if probs is None else [round(float(p),4) for p in probs]}")
+        except Exception:
+            pass
     results = []
     if boxes is not None and probs is not None:
         for b, p in zip(boxes, probs):

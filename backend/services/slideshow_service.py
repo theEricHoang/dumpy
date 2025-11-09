@@ -410,6 +410,17 @@ async def process_slideshow(job_id: str, request: SlideshowRequest, user_id: int
         print(f"[JOB {job_id}] Stage 3: Generating music")
         
         music_data = None
+        # Collect participant usernames (for prompt context)
+        try:
+            media_map = await fetch_event_media_mapping(event_id)
+            participants = []
+            for m in media_map:
+                for u in (m.get("tagged_users") or []):
+                    name = u.get("username") or u.get("name") or u.get("display_name")
+                    if name and name not in participants:
+                        participants.append(name)
+        except Exception:
+            participants = []
         if music_choice:
             # Music was pre-selected by user
             music_data = {"file_path": music_choice}  # Assuming music_choice is a URL/path
@@ -417,7 +428,12 @@ async def process_slideshow(job_id: str, request: SlideshowRequest, user_id: int
         else:
             # Generate music based on theme_prompt
             try:
-                music_data = await generate_music(theme_prompt, duration=30)
+                enriched_theme = theme_prompt or "playful"
+                if participants:
+                    # Add lightweight context about participants to influence vibe
+                    names = ", ".join(participants[:10])  # cap list length
+                    enriched_theme = f"{enriched_theme} vibe for a group featuring: {names}"
+                music_data = await generate_music(enriched_theme, duration=30)
                 print(f"[JOB {job_id}] Generated music: {music_data.get('file_path')}")
             except Exception as e:
                 print(f"[JOB {job_id}] WARNING: Failed to generate music: {str(e)}")

@@ -109,10 +109,14 @@ export default function UploadScreen() {
                     : undefined,
                 exifData: image.exif ?? undefined,
                 faceRecognitionOptions: {
-                    threshold: 0.6,
+                    // Relaxed thresholds & debug-friendly options
+                    threshold: 0.5,
                     autoEnroll: false,
                     autoEnrollMinSimilarity: 0.85,
-                    exclusiveAssignment: true,
+                    exclusiveAssignment: false,
+                    minProb: 0.4,
+                    filterMatches: false,
+                    disableCompression: true,
                 },
             });
 

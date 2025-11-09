@@ -40,6 +40,7 @@ numpy==2.3.4
 openai==2.7.1
 packaging==25.0
 pillow==12.0.0
+pillow-heif==0.18.0
 postgrest==2.24.0
 propcache==0.4.1
 pycparser==2.23
