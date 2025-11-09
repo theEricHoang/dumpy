@@ -83,9 +83,9 @@ export default function SignUp() {
             }
         }
 
-        setLoading(false);
-        setInfo('Account created.');
-        router.replace('/');
+    setLoading(false);
+    setInfo('Account created. Next, take a quick selfie.');
+    router.replace('/onboarding/Selfie');
     };
 
     return (
