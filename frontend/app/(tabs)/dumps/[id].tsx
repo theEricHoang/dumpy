@@ -49,7 +49,8 @@ export default function DumpWorkspace() {
   // Refresh media when screen comes into focus (after upload)
   useFocusEffect(
     useCallback(() => {
-      if (id && !loading) {
+      if (id) {
+        console.log('[Dump Workspace] Screen focused, refreshing media...');
         fetchEventData();
       }
     }, [id])
@@ -91,9 +92,31 @@ export default function DumpWorkspace() {
   };
 
   const handleInviteUsers = async (userIds: number[]) => {
-    // TODO: Implement backend call to add users to event
-    console.log('Adding users to dump:', userIds, 'for event:', id);
-    // Example: await supabase.from('event_participants').insert(userIds.map(userId => ({ event_id: id, user_id: userId })))
+    try {
+      const supabase = getSupabase();
+      
+      // Create event_participants records for each user
+      const participants = userIds.map(userId => ({
+        event_id: parseInt(id!),
+        user_id: userId,
+      }));
+
+      const { error } = await supabase
+        .from('event_participants')
+        .insert(participants);
+
+      if (error) {
+        console.error('Failed to invite users:', error);
+        alert('Failed to invite users. Please try again.');
+        return;
+      }
+
+      console.log(`Successfully added ${userIds.length} user(s) to event ${id}`);
+      alert(`Successfully invited ${userIds.length} user${userIds.length > 1 ? 's' : ''} to the dump!`);
+    } catch (error) {
+      console.error('Error inviting users:', error);
+      alert('An error occurred while inviting users.');
+    }
   };
 
   const handleFinishDump = async () => {

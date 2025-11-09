@@ -1,3 +1,5 @@
+import { useAuth } from '@/contexts/AuthContext';
+import { getSupabase } from '@/lib/supabaseClient';
 import { uploadAndTagPhoto } from '@/lib/uploadService';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,6 +10,7 @@ import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 export default function UploadScreen() {
     const router = useRouter();
     const params = useLocalSearchParams<{ returnTo?: string; eventId?: string }>();
+    const { user } = useAuth();
     const [uploading, setUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState<string>('');
 
@@ -18,6 +21,7 @@ export default function UploadScreen() {
     );
 
     const navigateBack = () => {
+        console.log('[Upload] Navigating back to:', params.returnTo || '/dumps');
         if (params.returnTo) {
             router.push(params.returnTo as any);
         } else {
@@ -77,15 +81,29 @@ export default function UploadScreen() {
         setUploading(true);
         
         try {
+            // Get current user_id from users table
+            if (!user?.email) {
+                throw new Error('User not authenticated');
+            }
+
+            setUploadStatus('Preparing upload...');
+            const supabase = getSupabase();
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('user_id')
+                .eq('email', user.email)
+                .single();
+
+            if (userError || !userData) {
+                throw new Error('Failed to get user ID: ' + (userError?.message || 'Unknown error'));
+            }
+
             // Step 1: Uploading to Azure
             setUploadStatus('Uploading to cloud...');
             
-            // TODO: Get current user ID from auth context
-            const currentUserId = 1; // Replace with actual user ID from auth
-            
             const result = await uploadAndTagPhoto(image.uri, {
                 eventId: parseInt(params.eventId!),
-                userId: currentUserId,
+                userId: userData.user_id,
                 location: image.exif?.GPSLatitude && image.exif?.GPSLongitude
                     ? `${image.exif.GPSLatitude},${image.exif.GPSLongitude}`
                     : undefined,

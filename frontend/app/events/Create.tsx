@@ -1,11 +1,13 @@
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Dimensions, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { useState } from 'react';
-import { useRouter } from 'expo-router';
-import { useFonts, Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold } from '@expo-google-fonts/poppins';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabaseClient';
+import { Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold, useFonts } from '@expo-google-fonts/poppins';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function CreateEvent() {
     const router = useRouter();
+    const { user } = useAuth();
     const [eventName, setEventName] = useState('');
     const [eventDate, setEventDate] = useState('');
     const [eventDesc, setEventDesc] = useState('');
@@ -25,40 +27,66 @@ export default function CreateEvent() {
     const handleCreateEvent = async () => {
         // Validate inputs
         if (!eventName.trim()) {
-            Alert.alert('Error', 'Please enter an event name');
+            Alert.alert('Error', 'Please enter a dump name');
+            return;
+        }
+
+        // Check authentication
+        if (!user?.email) {
+            Alert.alert('Error', 'You must be logged in to create a dump');
             return;
         }
 
         setIsLoading(true);
 
         try {
-            // TODO: uncomment to re-enable authentication once login/signup is implemented
-            // const { data: { user }, error: userError } = await supabase.auth.getUser();
-            // if (userError || !user) {
-            //     Alert.alert('Error', 'You must be logged in to create an event');
-            //     setIsLoading(false);
-            //     return;
-            // }
-
-            const { data, error } = await supabase
-                .from('events')
-                .insert({
-                    event_name: eventName,
-                    event_description: eventDesc || null,
-                    event_created_by: null, // will be replaced with user.id once auth is implemented
-                })
-                .select()
+            // Get current user's user_id from users table
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('user_id')
+                .eq('email', user.email)
                 .single();
 
-            if (error) {
-                console.error('Supabase error:', error);
-                Alert.alert('Error', `Failed to create event: ${error.message}`);
+            if (userError || !userData) {
+                console.error('Failed to get user ID:', userError);
+                Alert.alert('Error', 'Failed to get user information');
                 setIsLoading(false);
                 return;
             }
 
-            console.log('Event created successfully:', data);
+            // Create the event
+            const { data: eventData, error: eventError } = await supabase
+                .from('events')
+                .insert({
+                    event_name: eventName,
+                    event_description: eventDesc || null,
+                    event_created_by: userData.user_id,
+                })
+                .select()
+                .single();
+
+            if (eventError) {
+                console.error('Supabase error:', eventError);
+                Alert.alert('Error', `Failed to create event: ${eventError.message}`);
+                setIsLoading(false);
+                return;
+            }
+
+            console.log('Event created successfully:', eventData);
             
+            // Add creator as a participant
+            const { error: participantError } = await supabase
+                .from('event_participants')
+                .insert({
+                    event_id: eventData.event_id,
+                    user_id: userData.user_id,
+                });
+
+            if (participantError) {
+                console.error('Failed to add creator as participant:', participantError);
+                // Don't fail the whole operation, just log it
+            }
+
             // TODO: handle invites
             if (invites.trim()) {
                 console.log('Invites to process:', invites);
@@ -66,7 +94,7 @@ export default function CreateEvent() {
             }
 
             Alert.alert('Success', 'Event created successfully!', [
-                { text: 'OK', onPress: () => router.replace('/(tabs)/feed') }
+                { text: 'OK', onPress: () => router.replace('/(tabs)/dumps') }
             ]);
 
         } catch (err) {
@@ -89,9 +117,9 @@ export default function CreateEvent() {
                 keyboardShouldPersistTaps="handled"
             >            
                 <View style={styles.container}>
-                <Text style={styles.header}>create event</Text>
+                <Text style={styles.header}>create dump</Text>
 
-                <Text style={styles.label}>event name</Text>
+                <Text style={styles.label}>dump name</Text>
                 <TextInput
                     style={[styles.input]}
                     placeholder="event name"
@@ -100,7 +128,7 @@ export default function CreateEvent() {
                     onChangeText={setEventName}
                 />
 
-                <Text style={styles.label}>event date</Text>
+                <Text style={styles.label}>dump date</Text>
                 <TextInput
                     style={[styles.input]}
                     placeholder="YYYY-MM-DD"

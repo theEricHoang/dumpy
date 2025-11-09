@@ -1,7 +1,8 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabaseClient';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,18 +25,61 @@ export default function MyDumps() {
         }
     }, [user, authLoading]);
 
+    const fetchDumps = async () => {
+        if (!user?.email) return;
+
+        // Get current user's user_id from users table
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('user_id')
+            .eq('email', user.email)
+            .single();
+
+        if (userError || !userData) {
+            console.error('Failed to get user ID:', userError);
+            return;
+        }
+
+        // Fetch events where user is a participant
+        const { data, error } = await supabase
+            .from('event_participants')
+            .select(`
+                event_id,
+                events (
+                    event_id,
+                    event_name,
+                    event_description,
+                    event_created_at
+                )
+            `)
+            .eq('user_id', userData.user_id)
+            .order('event_id', { ascending: false });
+
+        if (!error && data) {
+            // Extract the events from the nested structure
+            const events = data
+                .map(item => item.events as any)
+                .filter(event => event !== null)
+                .flat() as Dump[];
+            setDumps(events);
+        }
+    };
+
     useEffect(() => {
-        const fetchDumps = async () => {
-            const { data, error } = await supabase
-                .from('events')
-                .select('event_id, event_name, event_description, event_created_at')
-                .order("event_created_at", { ascending: false });
-            if (!error) {
-                setDumps(data);
+        if (user) {
+            fetchDumps();
+        }
+    }, [user]);
+
+    // Refresh dumps when screen comes into focus (after creating an event)
+    useFocusEffect(
+        useCallback(() => {
+            if (user) {
+                console.log('[My Dumps] Screen focused, refreshing dumps...');
+                fetchDumps();
             }
-        };
-        fetchDumps();
-    }, []);
+        }, [user])
+    );
 
     if (authLoading) {
         return (
