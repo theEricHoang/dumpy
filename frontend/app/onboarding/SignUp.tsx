@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { getSupabase, hasSupabaseEnv } from '../../lib/supabaseClient';
+import { useAuth } from '@/contexts/AuthContext';
 import { useFonts, Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold } from "@expo-google-fonts/poppins";
 
 // Lightweight email shape check (let Supabase do final validation)
@@ -9,11 +9,12 @@ const EMAIL_REGEX = /\S+@\S+\.\S+/;
 
 export default function SignUp() {
     const router = useRouter();
+    const { signUp, user, loading } = useAuth();
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [loadingSignUp, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
 
@@ -23,69 +24,42 @@ export default function SignUp() {
         Poppins_700Bold
     });
 
-    if (!fontsLoaded) return null;
+    // Redirect to login if user is already logged in
+    useEffect(() => {
+        if (!loading && user) {
+            router.replace('/(tabs)/feed');
+        }
+    }, [user, loading]);
+
+    if (!fontsLoaded || loading) return <ActivityIndicator />;
 
     const passwordsMatch = password && confirmPassword && password === confirmPassword;
     const emailTrim = email.trim();
     const emailValid = EMAIL_REGEX.test(emailTrim);
     const passwordStrongEnough = password.length >= 6;
-    const envOk = hasSupabaseEnv();
     // Do not block submit purely on our regex; allow backend to validate too.
-    const canSubmit = !loading && username && emailTrim.length > 3 && passwordStrongEnough && passwordsMatch;
-    // Debug logs removed
+    const canSubmit = !loadingSignUp && username && emailTrim.length > 3 && passwordStrongEnough && passwordsMatch;
 
     const handleSignUp = async () => {
         setError(null);
         setInfo(null);
         if (!canSubmit) return;
         setLoading(true);
-        if (!hasSupabaseEnv()) {
-            setLoading(false);
-            setError('Supabase environment variables missing. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env.');
-            return;
-        }
         // Email + password sign up
-        const supabase = getSupabase();
-        const { data, error: signUpError } = await supabase.auth.signUp({
-            email: emailTrim.toLowerCase(),
+        const { error: signUpError } = await signUp(
+            emailTrim.toLowerCase(),
             password,
-            options: {
-                data: { username }
-            }
-        });
+            username
+        );
         if (signUpError) {
             setLoading(false);
             setError(signUpError.message);
             return;
         }
-        // If no session is returned, RLS will likely block inserts into public tables.
-        if (!data.session) {
-            setLoading(false);
-            setError('Signup succeeded but no session is active. Enable Email provider and disable email confirmation in Supabase Auth, or write via a backend service role.');
-            return;
-        }
-        // Immediately record username/email in custom "users" table.
-        // Your table uses an INTEGER PK named user_id. We should NOT attempt to write to user_id (serial/identity fills it).
-        // We'll insert only the known fields (email, username) and let the DB assign user_id.
-        // If you later want to link to auth.users, add a uuid column (e.g. auth_user_id uuid references auth.users(id))
-        // and switch this insert to include that column.
-        if (data.user) {
-            // Your users.password column is NOT NULL; since Auth stores the real password securely
-            // and this table is not used for authentication, we store a neutral placeholder.
-            // Recommended: drop the NOT NULL constraint or remove this column entirely.
-            const { error: usersError } = await supabase
-                .from('users')
-                .insert({ email: emailTrim.toLowerCase(), username, password: '***' });
-            if (usersError) {
-                setLoading(false);
-                setError(`User record save failed: ${usersError.message}`);
-                return;
-            }
-        }
 
         setLoading(false);
         setInfo('Account created.');
-        router.replace('/');
+        router.replace('/(tabs)/feed');
     };
 
     return (
@@ -156,11 +130,11 @@ export default function SignUp() {
                     )}
 
                     <TouchableOpacity
-                        disabled={!canSubmit || !envOk}
+                        disabled={!canSubmit}
                         onPress={handleSignUp}
-                        style={[styles.button, (!canSubmit || !envOk) && styles.buttonDisabled]}
+                        style={[styles.button, (!canSubmit) && styles.buttonDisabled]}
                     >
-                        {loading ? (
+                        {loadingSignUp ? (
                             <ActivityIndicator color="#fff" />
                         ) : (
                             <Text style={styles.buttonText}>create account</Text>
@@ -177,11 +151,6 @@ export default function SignUp() {
                             log in
                         </Text>
                     </Text>
-                    {!envOk && (
-                        <Text style={styles.envWarning}>
-                            Supabase env vars are not set. Create a .env.development with EXPO_PUBLIC_SUPABASE_URL & EXPO_PUBLIC_SUPABASE_ANON_KEY then restart Expo.
-                        </Text>
-                    )}
                 </View>
             </View>
         </KeyboardAvoidingView>
@@ -267,12 +236,5 @@ const styles = StyleSheet.create({
         color: "#064e3b",
         fontFamily: "Poppins_400Regular",
         fontSize: 13,
-    },
-    envWarning: {
-        textAlign: "center",
-        marginTop: 8,
-        fontFamily: "Poppins_400Regular",
-        color: "#b00020",
-        fontSize: 12,
     },
 });
