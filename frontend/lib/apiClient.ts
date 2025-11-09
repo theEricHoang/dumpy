@@ -1,10 +1,17 @@
 import Constants from 'expo-constants';
 
+// Resolve API base URL from multiple sources/names and normalize
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, any>;
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || extra.EXPO_PUBLIC_API_BASE_URL) as string | undefined;
+const RAW_API_BASE = (
+  process.env.EXPO_PUBLIC_API_BASE ||
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  (extra.EXPO_PUBLIC_API_BASE as string | undefined) ||
+  (extra.EXPO_PUBLIC_API_BASE_URL as string | undefined)
+) as string | undefined;
+const API_BASE_URL = RAW_API_BASE ? RAW_API_BASE.replace(/\/+$/, '') : undefined;
 
 if (!API_BASE_URL) {
-  console.warn('[API Client] Missing EXPO_PUBLIC_API_BASE_URL');
+  console.warn('[API Client] Missing EXPO_PUBLIC_API_BASE (or EXPO_PUBLIC_API_BASE_URL). Set it in your .env.* file.');
 }
 
 // Type definitions
@@ -54,10 +61,20 @@ class ApiClient {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl || API_BASE_URL || '';
+    // Don't throw on construction to avoid breaking route discovery/imports.
+    // We'll validate right before making a request.
+    this.baseUrl = (baseUrl || API_BASE_URL || '').replace(/\/+$/, '');
+  }
+
+  private ensureConfigured() {
     if (!this.baseUrl) {
-      throw new Error('[API Client] No API base URL configured');
+      throw new Error('[API Client] No API base URL configured. Define EXPO_PUBLIC_API_BASE in .env and restart the dev server.');
     }
+  }
+
+  private makeUrl(endpoint: string): string {
+    this.ensureConfigured();
+    return `${this.baseUrl}${endpoint}`;
   }
 
   /**
@@ -67,7 +84,7 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = this.makeUrl(endpoint);
     
     try {
       const response = await fetch(url, {
@@ -93,6 +110,7 @@ class ApiClient {
    * Detect faces in an image (local MTCNN)
    */
   async detectFaces(imageUri: string): Promise<FaceDetection[]> {
+    this.ensureConfigured();
     const formData = new FormData();
     formData.append('file', {
       uri: imageUri,
@@ -100,7 +118,7 @@ class ApiClient {
       name: 'photo.jpg',
     } as any);
 
-    const response = await fetch(`${this.baseUrl}/api/face/detect_local`, {
+    const response = await fetch(this.makeUrl('/api/face/detect_local'), {
       method: 'POST',
       body: formData,
     });
@@ -128,6 +146,7 @@ class ApiClient {
       exclusive_assignment?: boolean;
     } = {}
   ): Promise<IdentifyMultiResponse> {
+    this.ensureConfigured();
     const formData = new FormData();
     formData.append('file', {
       uri: imageUri,
@@ -146,7 +165,7 @@ class ApiClient {
     if (options.exclusive_assignment !== undefined) params.append('exclusive_assignment', options.exclusive_assignment.toString());
 
     const queryString = params.toString();
-    const url = `${this.baseUrl}/api/face/identify_multi_local_grouped${queryString ? `?${queryString}` : ''}`;
+  const url = this.makeUrl(`/api/face/identify_multi_local_grouped${queryString ? `?${queryString}` : ''}`);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -157,13 +176,38 @@ class ApiClient {
       throw new Error(`Face identification failed: ${response.status}`);
     }
 
-    return response.json();
+    const raw = await response.json();
+    // Normalize backend shape → IdentifyMultiResponse
+    // Backend returns: { ok: true, faces: [{ box, prob, results: [{user_id, similarity, match}] }], ... }
+    // Frontend expects: { faces: [{ face_index, box, probability, matches: [...] }], total_faces }
+    try {
+      const rawFaces = Array.isArray(raw?.faces) ? raw.faces : [];
+      const faces: MultiFaceResult[] = rawFaces.map((f: any, idx: number) => ({
+        face_index: idx,
+        box: Array.isArray(f?.box) ? f.box : [],
+        probability: typeof f?.prob === 'number' ? f.prob : (typeof f?.probability === 'number' ? f.probability : 0),
+        matches: Array.isArray(f?.results) ? f.results.map((m: any) => ({
+          user_id: m?.user_id,
+          similarity: m?.similarity,
+          embedding_id: m?.embedding_id,
+        })) : (Array.isArray(f?.matches) ? f.matches : []),
+      }));
+      return { faces, total_faces: faces.length } as IdentifyMultiResponse;
+    } catch (e) {
+      // Fallback: if backend signaled no faces
+      if (raw && raw.ok === false && raw.reason === 'no_face_detected') {
+        return { faces: [], total_faces: 0 } as IdentifyMultiResponse;
+      }
+      // Otherwise return as-is (may help during debugging)
+      return raw as IdentifyMultiResponse;
+    }
   }
 
   /**
    * Enroll a user with a single image
    */
   async enrollUser(userId: number, imageUri: string): Promise<any> {
+    this.ensureConfigured();
     const formData = new FormData();
     formData.append('file', {
       uri: imageUri,
@@ -171,7 +215,7 @@ class ApiClient {
       name: 'photo.jpg',
     } as any);
 
-    const response = await fetch(`${this.baseUrl}/api/face/enroll_local?user_id=${userId}`, {
+    const response = await fetch(this.makeUrl(`/api/face/enroll_local?user_id=${userId}`), {
       method: 'POST',
       body: formData,
     });
@@ -187,6 +231,7 @@ class ApiClient {
    * Enroll a user with multiple images (batch)
    */
   async enrollUserBatch(userId: number, imageUris: string[]): Promise<any> {
+    this.ensureConfigured();
     const formData = new FormData();
     imageUris.forEach((uri, index) => {
       formData.append('files', {
@@ -196,7 +241,7 @@ class ApiClient {
       } as any);
     });
 
-    const response = await fetch(`${this.baseUrl}/api/face/enroll_local_batch?user_id=${userId}`, {
+    const response = await fetch(this.makeUrl(`/api/face/enroll_local_batch?user_id=${userId}`), {
       method: 'POST',
       body: formData,
     });
