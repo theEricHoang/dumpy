@@ -81,7 +81,7 @@ class ApiClient {
       name: 'photo.jpg',
     } as any);
 
-    const response = await fetch(`${this.baseUrl}/face/detect_local`, {
+    const response = await fetch(`${this.baseUrl}/api/face/detect_local`, {
       method: 'POST',
       body: formData,
     });
@@ -127,7 +127,7 @@ class ApiClient {
     if (options.exclusive_assignment !== undefined) params.append('exclusive_assignment', options.exclusive_assignment.toString());
 
     const queryString = params.toString();
-    const url = `${this.baseUrl}/face/identify_multi_local_grouped${queryString ? `?${queryString}` : ''}`;
+    const url = `${this.baseUrl}/api/face/identify_multi_local_grouped${queryString ? `?${queryString}` : ''}`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -152,7 +152,7 @@ class ApiClient {
       name: 'photo.jpg',
     } as any);
 
-    const response = await fetch(`${this.baseUrl}/face/enroll_local?user_id=${userId}`, {
+    const response = await fetch(`${this.baseUrl}/api/face/enroll_local?user_id=${userId}`, {
       method: 'POST',
       body: formData,
     });
@@ -177,7 +177,7 @@ class ApiClient {
       } as any);
     });
 
-    const response = await fetch(`${this.baseUrl}/face/enroll_local_batch?user_id=${userId}`, {
+    const response = await fetch(`${this.baseUrl}/api/face/enroll_local_batch?user_id=${userId}`, {
       method: 'POST',
       body: formData,
     });
