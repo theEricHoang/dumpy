@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     SUPABASE_KEY: Optional[str] = None  # legacy / anon key (read-mostly)
     SUPABASE_API_KEY: Optional[str] = None  # alternative naming
     REPLICATE_API_TOKEN: Optional[str] = None
+    # Azure Storage (for profile pictures)
+    AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
+    AZURE_STORAGE_ACCOUNT: Optional[str] = None  # Optional if using connection string only
+    AZURE_STORAGE_PROFILE_PICS_CONTAINER: str = "profile-pics"
+    AZURE_STORAGE_ACCOUNT_KEY: Optional[str] = None  # If not using connection string, provide account key
+    # Compatibility / overrides with other modules
+    AZURE_STORAGE_CONTAINER: Optional[str] = None  # fallback container name used elsewhere
+    PROFILE_PIC_URL_COLUMN: Optional[str] = None  # override column name if not 'profile_pic_url'
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
     AZURE_STORAGE_CONTAINER: str = "slideshows"
 
