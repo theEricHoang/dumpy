@@ -2,8 +2,9 @@ import InviteModal from '@/components/InviteModal';
 import { getSupabase } from '@/lib/supabaseClient';
 import { Poppins_400Regular, Poppins_600SemiBold, Poppins_700Bold, useFonts } from '@expo-google-fonts/poppins';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type Event = {
@@ -44,6 +45,15 @@ export default function DumpWorkspace() {
       fetchEventData();
     }
   }, [id]);
+
+  // Refresh media when screen comes into focus (after upload)
+  useFocusEffect(
+    useCallback(() => {
+      if (id && !loading) {
+        fetchEventData();
+      }
+    }, [id])
+  );
 
   const fetchEventData = async () => {
     try {
@@ -98,11 +108,11 @@ export default function DumpWorkspace() {
         style={styles.mediaImage}
         resizeMode="cover"
       />
-      {item.ai_caption && (
+      {/* {item.ai_caption && (
         <View style={styles.captionContainer}>
           <Text style={styles.caption}>{item.ai_caption}</Text>
         </View>
-      )}
+      )} */}
     </View>
   );
 

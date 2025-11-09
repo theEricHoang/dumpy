@@ -72,9 +72,15 @@ export default function TabLayout() {
           tabPress: (e) => {
             e.preventDefault();
             if (isInDump) {
+              // Extract event ID from pathname (e.g., /dumps/123 -> 123)
+              const eventId = pathname.split('/').pop();
+              console.log('[Tab Layout] Navigating to upload with eventId:', eventId, 'from pathname:', pathname);
               router.push({
                 pathname: '/upload',
-                params: { returnTo: pathname }
+                params: { 
+                  returnTo: pathname,
+                  eventId: eventId 
+                }
               });
             }
           },
