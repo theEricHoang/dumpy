@@ -3,7 +3,7 @@
 <!-- HEADER STYLE: CLASSIC -->
 <div align="center">
 
-<img src=""C:\Users\caomi\Downloads\logo.png"" width="30%" style="position: relative; top: 0; right: 0;" alt="Project Logo"/>
+<img src=""https://github.com/CodingHusk3y/dumpy/frontend/assets/images/welcome.png"" width="30%" style="position: relative; top: 0; right: 0;" alt="Project Logo"/>
 
 # DUMPY
 
